@@ -1,14 +1,10 @@
 /**
- * ClaudeSessionService - 历史会话加载和管理
- *
- * 职责：
- * 1. 从 ~/.claude/projects/ 目录加载会话历史
- * 2. 解析 .jsonl 文件（每行一个 JSON 对象）
- * 3. 组织会话消息和生成摘要
- * 4. 支持会话列表查询和消息检索
- *
- * 依赖：
- * - ILogService: 日志服务
+ * ClaudeSessionService -
+ * 1. ~/.claude/projects/
+ * 2. .jsonl （ JSON ）
+ * 3.
+ * 4.
+ * - ILogService:
  */
 
 import * as fs from 'fs/promises';
@@ -20,11 +16,9 @@ import { ILogService } from '../logService';
 export const IClaudeSessionService = createDecorator<IClaudeSessionService>('claudeSessionService');
 
 // ============================================================================
-// 类型定义
 // ============================================================================
 
 /**
- * 会话消息类型
  */
 interface SessionMessage {
     uuid: string;
@@ -44,7 +38,6 @@ interface SessionMessage {
 }
 
 /**
- * 会话信息
  */
 export interface SessionInfo {
     id: string;
@@ -57,61 +50,55 @@ export interface SessionInfo {
 }
 
 /**
- * 会话服务接口
  */
 export interface IClaudeSessionService {
     readonly _serviceBrand: undefined;
 
     /**
-     * 列出指定工作目录的所有会话
      */
     listSessions(cwd: string): Promise<SessionInfo[]>;
 
     /**
-     * 获取指定会话的所有消息
      */
     getSession(sessionIdOrPath: string, cwd: string): Promise<any[]>;
 }
 
 // ============================================================================
-// 路径管理函数
 // ============================================================================
 
 /**
- * 获取 Claude 配置目录
+ * Claude
  */
 function getConfigDir(): string {
     return process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
 }
 
 /**
- * 获取项目历史目录
  */
 function getProjectsDir(): string {
     return path.join(getConfigDir(), "projects");
 }
 
 /**
- * 获取特定项目的历史目录
  */
 function getProjectHistoryDir(cwd: string): string {
     return path.join(getProjectsDir(), cwd.replace(/[^a-zA-Z0-9]/g, "-"));
 }
 
 /**
- * UUID 正则表达式
+ * UUID
  */
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * 验证 UUID
+ * UUID
  */
 function validateSessionId(id: string): string | null {
     return typeof id !== "string" ? null : UUID_REGEX.test(id) ? id : null;
 }
 
 /**
- * 读取 JSONL 文件
+ * JSONL
  */
 async function readJSONL(filePath: string): Promise<SessionMessage[]> {
     try {
@@ -137,7 +124,7 @@ async function readJSONL(filePath: string): Promise<SessionMessage[]> {
 }
 
 /**
- * 转换消息格式（用于返回给前端）
+ * （）
  */
 function convertMessage(msg: SessionMessage): any | undefined {
     if (msg.isMeta) {
@@ -172,7 +159,6 @@ function convertMessage(msg: SessionMessage): any | undefined {
 }
 
 /**
- * 生成会话摘要
  */
 function generateSummary(messages: SessionMessage[]): string {
     let firstUserMessage: SessionMessage | undefined;
@@ -195,14 +181,13 @@ function generateSummary(messages: SessionMessage[]): string {
     if (typeof content === "string") {
         text = content;
     } else if (Array.isArray(content)) {
-        // 从后向前查找最后一个 text 类型的项
+ // text
         const textItems = content.filter((item: any) => item.type === "text");
         text = textItems.length > 0 ? textItems[textItems.length - 1]?.text || "No prompt" : "No prompt";
     } else {
         text = "No prompt";
     }
 
-    // 去除换行符并截断
     text = text.replace(/\n/g, " ").trim();
     if (text.length > 45) {
         text = text.slice(0, 45) + "...";
@@ -213,11 +198,10 @@ function generateSummary(messages: SessionMessage[]): string {
 
 
 // ============================================================================
-// ClaudeSessionService 实现
+// ClaudeSessionService
 // ============================================================================
 
 /**
- * 会话数据容器
  */
 interface SessionData {
     sessionMessages: Map<string, Set<string>>;
@@ -226,7 +210,6 @@ interface SessionData {
 }
 
 /**
- * 加载项目的会话历史
  */
 async function loadProjectData(cwd: string): Promise<SessionData> {
     const projectDir = getProjectHistoryDir(cwd);
@@ -315,7 +298,6 @@ async function loadProjectData(cwd: string): Promise<SessionData> {
 }
 
 /**
- * 获取所有会话的对话链
  */
 function getTranscripts(data: SessionData): SessionMessage[][] {
     const allMessages = [...data.messages.values()];
@@ -332,7 +314,6 @@ function getTranscripts(data: SessionData): SessionMessage[][] {
 }
 
 /**
- * 重建完整的对话链
  */
 function getTranscript(message: SessionMessage, data: SessionData): SessionMessage[] {
     const result: SessionMessage[] = [];
@@ -348,11 +329,11 @@ function getTranscript(message: SessionMessage, data: SessionData): SessionMessa
 
 
 // ============================================================================
-// ClaudeSessionService 实现
+// ClaudeSessionService
 // ============================================================================
 
 /**
- * Claude 会话服务实现
+ * Claude
  */
 export class ClaudeSessionService implements IClaudeSessionService {
     readonly _serviceBrand: undefined;
@@ -360,15 +341,14 @@ export class ClaudeSessionService implements IClaudeSessionService {
     constructor(
         @ILogService private readonly logService: ILogService
     ) {
-        this.logService.info('[ClaudeSessionService] 已初始化');
+ this.logService.info('[ClaudeSessionService] ');
     }
 
     /**
-     * 列出指定工作目录的所有会话
      */
     async listSessions(cwd: string): Promise<SessionInfo[]> {
         try {
-            this.logService.info(`[ClaudeSessionService] 加载会话列表: ${cwd}`);
+ this.logService.info(`[ClaudeSessionService] : ${cwd}`);
 
             const data = await loadProjectData(cwd);
 
@@ -389,20 +369,19 @@ export class ClaudeSessionService implements IClaudeSessionService {
                 };
             });
 
-            this.logService.info(`[ClaudeSessionService] 找到 ${sessions.length} 个会话`);
+ this.logService.info(`[ClaudeSessionService] ${sessions.length} `);
             return sessions;
         } catch (error) {
-            this.logService.error(`[ClaudeSessionService] 加载会话列表失败:`, error);
+ this.logService.error(`[ClaudeSessionService] :`, error);
             return [];
         }
     }
 
     /**
-     * 获取指定会话的所有消息
      */
     async getSession(sessionIdOrPath: string, cwd: string): Promise<any[]> {
         try {
-            this.logService.info(`[ClaudeSessionService] 获取会话消息: ${sessionIdOrPath}`);
+ this.logService.info(`[ClaudeSessionService] : ${sessionIdOrPath}`);
 
             if (sessionIdOrPath.endsWith(".jsonl")) {
                 const messages: any[] = [];
@@ -434,10 +413,10 @@ export class ClaudeSessionService implements IClaudeSessionService {
                 .map(convertMessage)
                 .filter(msg => !!msg);
 
-            this.logService.info(`[ClaudeSessionService] 获取到 ${result.length} 条消息`);
+ this.logService.info(`[ClaudeSessionService] ${result.length} messages`);
             return result;
         } catch (error) {
-            this.logService.error(`[ClaudeSessionService] 获取会话消息失败:`, error);
+ this.logService.error(`[ClaudeSessionService] :`, error);
             return [];
         }
     }

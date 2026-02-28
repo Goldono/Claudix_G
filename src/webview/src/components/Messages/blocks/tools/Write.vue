@@ -4,29 +4,28 @@
     tool-name="Write"
     :tool-result="toolResult"
     :default-expanded="shouldExpand"
+    :show-revert-button="showRevertButton"
+    :is-reverted="isReverted"
+    :revert-loading="revertLoading"
     :class="{ 'has-content-view': hasContentView }"
+    @toggle-revert="handleToggleRevert"
   >
     <template #main>
-      <span class="tool-label">Write</span>
       <ToolFilePath v-if="filePath" :file-path="filePath" :context="context" />
       <span v-if="contentStats" class="content-stats">
-        <span class="stat-lines">{{ contentStats.lines }} Lines </span>
-        <span class="stat-chars">{{ contentStats.chars }} Chars </span>
+        <span class="stat-add">+{{ contentStats.lines }}</span>
+        <span class="stat-label">lines</span>
       </span>
     </template>
 
     <template #expandable>
-      <!-- 文件内容视图 -->
       <div v-if="content && !toolResult?.is_error" class="write-view">
-        <!-- 文件标题栏 -->
         <div v-if="filePath" class="write-file-header">
           <FileIcon :file-name="filePath" :size="16" class="file-icon" />
           <span class="file-name">{{ fileName }}</span>
         </div>
 
-        <!-- 内容显示 -->
         <div class="write-scroll-container">
-          <!-- 左侧行号列 -->
           <div ref="lineNumbersRef" class="write-line-numbers">
             <div
               v-for="n in lineCount"
@@ -37,14 +36,12 @@
             </div>
           </div>
 
-          <!-- 右侧内容列 -->
           <div ref="contentRef" class="write-content" @scroll="handleContentScroll">
             <pre class="content-text">{{ content }}</pre>
           </div>
         </div>
       </div>
 
-      <!-- 错误内容 -->
       <ToolError :tool-result="toolResult" />
     </template>
   </ToolMessageWrapper>
@@ -68,7 +65,39 @@ interface Props {
 
 const props = defineProps<Props>();
 
-// vcc-re 数据获取方式：只从 inputs 获取
+// Revert state
+const isReverted = ref(false);
+const revertLoading = ref(false);
+
+const showRevertButton = computed(() => {
+  return !!props.toolResult && !props.toolResult.is_error && !!filePath.value;
+});
+
+async function handleToggleRevert() {
+  if (revertLoading.value || !props.context?.revertFileEdit) return;
+  revertLoading.value = true;
+  try {
+    const action = isReverted.value ? 'reapply' : 'revert';
+    const result = await props.context.revertFileEdit(
+      action,
+      filePath.value,
+      'write',
+      {
+        fileContents: content.value,
+        previousContents: null, // Assume new file for MVP
+      }
+    );
+    if (result.success) {
+      isReverted.value = !isReverted.value;
+    } else {
+      await props.context.showNotification?.(`Fehler: ${result.error}`, 'error');
+    }
+  } finally {
+    revertLoading.value = false;
+  }
+}
+
+// vcc-re ： inputs
 const filePath = computed(() => {
   return props.toolUse?.input?.file_path || '';
 });
@@ -78,12 +107,11 @@ const fileName = computed(() => {
   return path.basename(filePath.value);
 });
 
-// 从 inputs.content 获取文件内容
+// inputs.content
 const content = computed(() => {
   return props.toolUse?.input?.content || '';
 });
 
-// 内容统计
 const contentStats = computed(() => {
   if (!content.value) return null;
 
@@ -93,33 +121,28 @@ const contentStats = computed(() => {
   return { lines, chars };
 });
 
-// 行数
 const lineCount = computed(() => {
   if (!content.value) return 0;
   return content.value.split('\n').length;
 });
 
-// 是否有内容视图
 const hasContentView = computed(() => {
   return !!content.value && !props.toolResult?.is_error;
 });
 
-// 判断是否为权限请求阶段
 const isPermissionRequest = computed(() => {
-  // 没有 result 或 result 不是错误 = 权限请求或执行中
+ // result result =
   return !props.toolResult || !props.toolResult.is_error;
 });
 
-// 权限请求阶段展开
 const shouldExpand = computed(() => {
   return hasContentView.value && isPermissionRequest.value;
 });
 
-// DOM 引用
+// DOM
 const lineNumbersRef = ref<HTMLElement>();
 const contentRef = ref<HTMLElement>();
 
-// 同步行号列和内容列的垂直滚动
 function handleContentScroll() {
   if (lineNumbersRef.value && contentRef.value) {
     lineNumbersRef.value.scrollTop = contentRef.value.scrollTop;
@@ -128,30 +151,43 @@ function handleContentScroll() {
 </script>
 
 <style scoped>
-/* 有内容视图时移除左侧边框和边距，error 保留默认样式 */
+/* ，error */
 .has-content-view :deep(.expandable-content) {
   border-left: none;
   padding: 0;
   margin-left: 0;
 }
 
-.tool-label {
-  font-weight: 500;
+.header-file-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.header-filename {
+  font-size: 0.85em;
+  font-family: var(--vscode-editor-font-family);
   color: var(--vscode-foreground);
-  font-size: 0.9em;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .content-stats {
   display: flex;
-  gap: 8px;
-  margin-left: 8px;
+  gap: 4px;
   font-size: 0.8em;
-  color: color-mix(in srgb, var(--vscode-foreground) 70%, transparent);
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
-.stat-lines,
-.stat-chars {
-  font-family: var(--vscode-editor-font-family);
+.stat-add {
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.stat-label {
+  color: color-mix(in srgb, var(--vscode-foreground) 50%, transparent);
 }
 
 .write-view {
@@ -193,7 +229,7 @@ function handleContentScroll() {
   background-color: var(--vscode-editor-background);
 }
 
-/* 左侧行号列 */
+/* */
 .write-line-numbers {
   width: 50px;
   flex-shrink: 0;
@@ -213,14 +249,14 @@ function handleContentScroll() {
   user-select: none;
 }
 
-/* 右侧内容列 */
+/* */
 .write-content {
   flex: 1;
   overflow: auto;
   position: relative;
 }
 
-/* Monaco 风格滚动条(仅应用于内容列) */
+/* Monaco () */
 .write-content::-webkit-scrollbar {
   width: 14px;
   height: 14px;

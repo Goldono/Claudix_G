@@ -57,20 +57,17 @@ export class ResourceMap<T> implements Map<URI, T> {
 	private readonly toKey: ResourceMapKeyFn;
 
 	/**
-	 *
 	 * @param toKey Custom uri identity function, e.g use an existing `IExtUri#getComparison`-util
 	 */
 	constructor(toKey?: ResourceMapKeyFn);
 
 	/**
-	 *
 	 * @param other Another resource which this maps is created from
 	 * @param toKey Custom uri identity function, e.g use an existing `IExtUri#getComparison`-util
 	 */
 	constructor(other?: ResourceMap<T>, toKey?: ResourceMapKeyFn);
 
 	/**
-	 *
 	 * @param other Another resource which this maps is created from
 	 * @param toKey Custom uri identity function, e.g use an existing `IExtUri#getComparison`-util
 	 */

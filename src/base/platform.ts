@@ -174,7 +174,6 @@ export namespace Language {
 /**
  * Desktop: The OS locale or the locale specified by --locale or `argv.json`.
  * Web: matches `platformLocale`.
- *
  * The UI is not necessarily shown in the provided locale.
  */
 export const locale = _locale;
@@ -191,7 +190,6 @@ export const setTimeout0IsFaster = (typeof $globalThis.postMessage === 'function
 
 /**
  * See https://html.spec.whatwg.org/multipage/timers-and-user-prompts.html#:~:text=than%204%2C%20then-,set%20timeout%20to%204,-.
- *
  * Works similarly to `setTimeout(0)` but doesn't suffer from the 4ms artificial delay
  * that browsers set when the nesting level is > 5.
  */

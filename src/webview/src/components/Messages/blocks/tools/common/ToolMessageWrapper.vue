@@ -1,13 +1,10 @@
 <template>
   <div class="tool-message-wrapper">
-    <!-- 自定义布局模式 -->
     <template v-if="isCustomLayout">
       <slot name="custom"></slot>
     </template>
 
-    <!-- 标准布局模式 -->
     <template v-else>
-      <!-- 主信息行 -->
       <div
         class="main-line"
         :class="{ 'is-expandable': hasExpandableContent }"
@@ -15,7 +12,6 @@
         @mouseenter="isHovered = true"
         @mouseleave="isHovered = false"
       >
-        <!-- 工具图标 -->
         <button class="tool-icon-btn" :title="toolName">
           <span
             v-if="!isHovered || !hasExpandableContent"
@@ -32,12 +28,24 @@
           ></span>
         </button>
 
-        <!-- 主内容 -->
         <div class="main-content">
           <slot name="main"></slot>
         </div>
 
-        <!-- 状态指示器 -->
+        <!-- Revert/Redo button -->
+        <button
+          v-if="showRevertButton"
+          class="revert-btn"
+          :class="{ 'is-reverted': isReverted }"
+          :title="isReverted ? 'Re-apply' : 'Undo'"
+          :disabled="revertLoading"
+          @click.stop="$emit('toggle-revert')"
+        >
+          <span v-if="revertLoading" class="codicon codicon-loading codicon-modifier-spin" />
+          <span v-else-if="isReverted" class="codicon codicon-redo" />
+          <span v-else class="codicon codicon-discard" />
+        </button>
+
         <ToolStatusIndicator
           v-if="indicatorState"
           :state="indicatorState"
@@ -45,13 +53,11 @@
         />
       </div>
 
-      <!-- 展开内容 -->
       <div v-if="hasExpandableContent && isExpanded" class="expandable-content">
         <slot name="expandable"></slot>
       </div>
     </template>
 
-    <!-- 权限审批按钮 -->
     <div v-if="permissionState === 'pending'" class="permission-actions">
       <button @click.stop="$emit('deny')" class="btn-reject">
         <span>Reject</span>
@@ -74,6 +80,9 @@ interface Props {
   permissionState?: string;
   defaultExpanded?: boolean;
   isCustomLayout?: boolean;
+  showRevertButton?: boolean;
+  isReverted?: boolean;
+  revertLoading?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -86,27 +95,25 @@ const props = withDefaults(defineProps<Props>(), {
 defineEmits<{
   allow: [];
   deny: [];
+  'toggle-revert': [];
 }>();
 
 const slots = useSlots();
 
-// 检测是否有展开内容
 const hasExpandableContent = computed(() => {
   return !!slots.expandable || !!props.toolResult?.is_error;
 });
 
-// 展开状态
 const userToggled = ref(false);
 const userToggledState = ref(false);
 
 const isExpanded = computed({
   get: () => {
-    // 优先使用用户手动切换的状态
     if (userToggled.value) {
       return userToggledState.value;
     }
-    // 否则根据 defaultExpanded 或错误状态决定
-    return props.defaultExpanded || !!props.toolResult?.is_error;
+ // Only auto-expand on errors; everything else collapsed by default
+    return !!props.toolResult?.is_error;
   },
   set: (value) => {
     userToggled.value = true;
@@ -116,7 +123,6 @@ const isExpanded = computed({
 
 const isHovered = ref(false);
 
-// 状态计算
 const indicatorState = computed<'success' | 'error' | 'pending' | null>(() => {
   if (props.toolResult?.is_error) return 'error';
   if (props.permissionState === 'pending') return 'pending';
@@ -124,7 +130,6 @@ const indicatorState = computed<'success' | 'error' | 'pending' | null>(() => {
   return null;
 });
 
-// 切换展开
 function toggleExpand() {
   if (hasExpandableContent.value) {
     isExpanded.value = !isExpanded.value;
@@ -190,7 +195,7 @@ function toggleExpand() {
   border-left: 1px solid var(--vscode-panel-border);
 }
 
-/* 权限审批按钮 */
+/* */
 .permission-actions {
   display: flex;
   justify-content: flex-end;
@@ -224,5 +229,46 @@ function toggleExpand() {
 
 .btn-accept:hover {
   background: var(--vscode-button-hoverBackground);
+}
+
+/* Revert button */
+.revert-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  padding: 2px;
+  color: var(--vscode-foreground);
+  opacity: 0;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: opacity 0.15s, background-color 0.15s;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.main-line:hover .revert-btn {
+  opacity: 0.5;
+}
+
+.revert-btn:hover {
+  opacity: 1 !important;
+  background-color: color-mix(in srgb, var(--vscode-foreground) 10%, transparent);
+}
+
+.revert-btn.is-reverted {
+  opacity: 0.7;
+  color: #eab308;
+}
+
+.revert-btn .codicon {
+  font-size: 14px;
+}
+
+.revert-btn:disabled {
+  cursor: wait;
+  opacity: 0.3 !important;
 }
 </style>

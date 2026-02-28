@@ -1,6 +1,6 @@
 <template>
   <div v-if="visible && queuedMessages.length > 0" class="message-queue-section">
-    <!-- Message Queue 头部 -->
+    <!-- Message Queue -->
     <div
       style="display: flex; justify-content: space-between; align-items: center; height: 24px; cursor: pointer;"
       @click="toggleExpanded"
@@ -17,7 +17,7 @@
       </div>
     </div>
 
-    <!-- Queue列表 (当展开时) -->
+    <!-- Queue () -->
     <div
       v-if="expanded"
       class="queue-item-list"
@@ -28,13 +28,11 @@
         :key="message.id"
         class="queue-item"
       >
-        <!-- 队列指示器 -->
         <div
           class="queue-item-indicator"
           style="opacity: 0.4; border: 1px solid var(--vscode-foreground);"
         ></div>
 
-        <!-- 消息内容 -->
         <div style="display: flex; flex-direction: column;">
           <div style="max-height: 56px; mask-image: none;">
             <div
@@ -47,9 +45,7 @@
           </div>
         </div>
 
-        <!-- 操作按钮 -->
         <div class="queue-item-actions">
-          <!-- 删除按钮 -->
           <div
             class="anysphere-icon-button"
             @click="$emit('remove', message.id)"
@@ -57,7 +53,6 @@
           >
             <span class="codicon codicon-trashcan text-[12px]!"></span>
           </div>
-          <!-- 立即发送按钮 -->
           <div
             class="anysphere-icon-button"
             @click="$emit('sendNow', message.id)"

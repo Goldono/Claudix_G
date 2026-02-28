@@ -49,9 +49,7 @@ else {
 /**
  * Provides safe access to the `cwd` property in node.js, sandboxed or web
  * environments.
- *
  * Note: in web, this property is hardcoded to be `/`.
- *
  * @skipMangle
  */
 export const cwd = safeProcess.cwd;
@@ -59,7 +57,6 @@ export const cwd = safeProcess.cwd;
 /**
  * Provides safe access to the `env` property in node.js, sandboxed or web
  * environments.
- *
  * Note: in web, this property is hardcoded to be `{}`.
  */
 export const env = safeProcess.env;

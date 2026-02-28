@@ -26,7 +26,6 @@ import { IClaudeAgentService, ClaudeAgentService } from './claude/ClaudeAgentSer
 
 /**
  * Register all services to the builder
- *
  * @param builder - Instantiation service builder
  * @param context - VSCode extension context
  */

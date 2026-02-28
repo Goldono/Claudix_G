@@ -113,7 +113,6 @@ export function assertType(condition: unknown, type?: string): asserts condition
 
 /**
  * Asserts that the argument passed in is neither undefined nor null.
- *
  * @see {@link assertDefined} for a similar utility that leverages TS assertion functions to narrow down the type of `arg` to be non-nullable.
  */
 export function assertReturnsDefined<T>(arg: T | null | undefined): NonNullable<T> {
@@ -130,24 +129,18 @@ export function assertReturnsDefined<T>(arg: T | null | undefined): NonNullable<
  * throwing an error with the provided error or error message, while also
  * narrowing down the type of the `value` to be `NonNullable` using TS
  * assertion functions.
- *
  * @throws if the provided `value` is `null` or `undefined`.
- *
  * ## Examples
- *
  * ```typescript
  * // an assert with an error message
  * assertDefined('some value', 'String constant is not defined o_O.');
- *
  * // `throws!` the provided error
  * assertDefined(null, new Error('Should throw this error.'));
- *
  * // narrows down the type of `someValue` to be non-nullable
  * const someValue: string | undefined | null = blackbox();
  * assertDefined(someValue, 'Some value must be defined.');
  * console.log(someValue.length); // now type of `someValue` is `string`
  * ```
- *
  * @see {@link assertReturnsDefined} for a similar utility but without assertion.
  * @see {@link https://www.typescriptlang.org/docs/handbook/release-notes/typescript-3-7.html#assertion-functions typescript-3-7.html#assertion-functions}
  */
@@ -183,24 +176,19 @@ export function assertReturnsAllDefined(...args: (unknown | null | undefined)[])
 
 /**
  * Checks if the provided value is one of the vales in the provided list.
- *
  * ## Examples
- *
  * ```typescript
  * // note! item type is a `subset of string`
  * type TItem = ':' | '.' | '/';
- *
  * // note! item is type of `string` here
  * const item: string = ':';
  * // list of the items to check against
  * const list: TItem[] = [':', '.'];
- *
  * // ok
  * assert(
  *   isOneOf(item, list),
  *   'Must succeed.',
  * );
- *
  * // `item` is of `TItem` type now
  * ```
  */
@@ -287,7 +275,6 @@ export function validateConstraint(arg: unknown, constraint: TypeConstraint | un
 
 /**
  * Helper type assertion that safely upcasts a type to a supertype.
- *
  * This can be used to make sure the argument correctly conforms to the subtype while still being able to pass it
  * to contexts that expects the supertype.
  */

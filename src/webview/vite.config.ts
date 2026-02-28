@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => ({
     port: Number(process.env.VITE_DEV_PORT) || 5173,
     strictPort: true,
     fs: {
-      // 允许从工作区根目录及外部资源目录读取文件（用于别名资源与图标目录）
+      // Allow reading files from workspace root and external resource directories (for aliased resources and icon directories)
       allow: [
         path.resolve(__dirname, '../..'),
         path.resolve(__dirname, '../../assets'),
@@ -32,7 +32,7 @@ export default defineConfig(({ mode }) => ({
     {
       name: 'filter-mdi-fonts',
       generateBundle(options, bundle) {
-        // 只保留 woff2 格式的 MDI 字体，删除其他格式
+        // Keep only woff2 format MDI fonts, delete other formats
         for (const fileName of Object.keys(bundle)) {
           if (fileName.includes('materialdesignicons-webfont') && !fileName.endsWith('.woff2')) {
             delete bundle[fileName];
@@ -75,7 +75,7 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      // 使用本地的 codicon 资源替换依赖包中的资源
+      // Use local codicon resources to replace package resources
       '@vscode/codicons/dist/codicon.css': path.resolve(__dirname, '../../assets/codicons/codicon.css'),
       '@vscode/codicons/dist/codicon.ttf': path.resolve(__dirname, '../../assets/codicons/codicon.ttf'),
     },

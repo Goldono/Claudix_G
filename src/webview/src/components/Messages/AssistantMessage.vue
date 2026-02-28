@@ -28,14 +28,14 @@ interface Props {
 
 const props = defineProps<Props>();
 
-// 计算动态 class
+// class
 const messageClasses = computed(() => {
   const content = props.message.message.content;
 
-  // content 总是数组，检查是否包含 tool_use
+ // content ， tool_use
   if (Array.isArray(content)) {
     const hasToolUse = content.some(wrapper => wrapper.content.type === 'tool_use');
-    // 只有纯文本消息（没有 tool_use）才显示圆点
+ // （ tool_use）
     return hasToolUse ? [] : ['prefix'];
   }
 
@@ -57,7 +57,7 @@ const messageClasses = computed(() => {
   padding-left: 24px;
 }
 
-/* 只在纯文本消息时显示圆点 */
+/* */
 .assistant-message.prefix::before {
   content: "\25cf";
   position: absolute;

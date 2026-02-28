@@ -79,7 +79,7 @@ body {
   margin: 0 !important;
 }
 
-/* Light 主题调整 */
+/* Light */
 .vscode-light {
   --app-transparent-inner-border: rgba(0, 0, 0, 0.07);
   --app-spinner-foreground: var(--app-claude-clay-button-orange);
@@ -197,13 +197,13 @@ body {
   font-weight: 500;
 }
 
-/* Todo completed 状态的划掉样式 */
+/* Todo completed */
 .todo-item.completed .todo-item-text {
   text-decoration: line-through;
   opacity: 0.6;
 }
 
-/* Todo List 动画效果 */
+/* Todo List */
 @keyframes fadein {
   0% {
     opacity: 0;
@@ -265,7 +265,7 @@ body {
   color: var(--vscode-input-placeholderForeground);
 }
 
-/* Custom Scrollbar - 只显示滑动条，背景透明 */
+/* Custom Scrollbar - ， */
 .custom-scrollbar::-webkit-scrollbar {
   width: 8px;
 }
@@ -292,7 +292,7 @@ body {
   display: none;
 }
 
-/* Firefox 兼容性 */
+/* Firefox */
 .custom-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
@@ -335,7 +335,7 @@ body {
 
 /* CSS Variables */
 :root {
-  /* 使用 VSCode 原生变量，无需自定义变量 */
+ /* VSCode ， */
   color: inherit;
 }
 
@@ -369,7 +369,7 @@ body {
   opacity: 0.5;
 }
 
-/* Monaco Scrollable Element - 复用VSCode官方样式 */
+/* Monaco Scrollable Element - VSCode */
 .monaco-scrollable-element {
   position: relative;
   overflow: hidden;
@@ -443,7 +443,7 @@ body {
   background: var(--vscode-scrollbarSlider-activeBackground);
 }
 
-/* 简化的滚动系统保留用于兼容 */
+/* */
 .scrollable-content-area {
   height: 200px;
   overflow: hidden;
@@ -453,7 +453,7 @@ body {
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  /* 自定义滚动条样式 */
+ /* */
   scrollbar-width: thin;
   scrollbar-color: var(--vscode-scrollbarSlider-background) transparent;
 }
@@ -512,7 +512,7 @@ body {
 }
 
 
-/* 文件图标特殊样式 */
+/* */
 .show-file-icons {
   height: 17px;
   margin-left: -2px;

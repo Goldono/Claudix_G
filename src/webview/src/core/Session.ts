@@ -19,6 +19,10 @@ export interface SelectionRange {
 
 export interface UsageData {
   totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
   totalCost: number;
   contextWindow: number;
 }
@@ -77,7 +81,7 @@ export class Session {
   readonly messages = signal<Message[]>([]);
   readonly messageCount = signal<number>(0);
   readonly cwd = signal<string | undefined>(undefined);
-  readonly permissionMode = signal<PermissionMode>('default');
+  readonly permissionMode = signal<PermissionMode>('bypassPermissions');
   readonly summary = signal<string | undefined>(undefined);
   readonly modelSelection = signal<string | undefined>(undefined);
   readonly thinkingLevel = signal<string>('default_on');
@@ -86,6 +90,10 @@ export class Session {
   readonly selection = signal<SelectionRange | undefined>(undefined);
   readonly usageData = signal<UsageData>({
     totalTokens: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
     totalCost: 0,
     contextWindow: 200000
   });
@@ -143,7 +151,7 @@ export class Session {
     session.lastModifiedTime(summary.lastModified);
     session.summary(summary.summary);
     session.worktree(summary.worktree);
-    session.messageCount(summary.messageCount ?? 0);  // 保存服务器返回的消息数量
+ session.messageCount(summary.messageCount ?? 0);
     return session;
   }
 
@@ -180,11 +188,11 @@ export class Session {
       const accumulator: Message[] = [];
       for (const raw of response?.messages ?? []) {
         this.processMessage(raw);
-        // 使用 processAndAttachMessage 来绑定 tool_result
-        // 这样历史消息中的 tool_result 也会正确绑定到 tool_use
+ // processAndAttachMessage tool_result
+ // tool_result tool_use
         processAndAttachMessage(accumulator, raw);
       }
-      // 移除 ReadCoalesced 合并逻辑
+ // ReadCoalesced
       // this.messages(mergeConsecutiveReadMessages(accumulator));
       this.messages(accumulator);
       await this.launchClaude();
@@ -200,11 +208,11 @@ export class Session {
   ): Promise<void> {
     const connection = await this.getConnection();
 
-    // 官方路线：不在 slash 命令时临时切换 thinkingLevel，保持会话一致性，
-    // 由 SDK/服务端在 assistant 消息中提供 thinking/redacted_thinking 块以满足约束
+ // ： slash thinkingLevel，，
+ // SDK/ assistant thinking/redacted_thinking
     const isSlash = this.isSlashCommand(input);
 
-    // 启动 channel（确保已带上当前 thinkingLevel）
+ // channel（ thinkingLevel）
     await this.launchClaude();
 
     const shouldIncludeSelection = includeSelection && !isSlash;
@@ -258,6 +266,8 @@ export class Session {
     if (!this.modelSelection()) {
       this.modelSelection(connection.config()?.modelSetting);
     }
+
+    this.updateContextWindow(this.modelSelection() ?? undefined);
 
     if (!this.thinkingLevel()) {
       this.thinkingLevel(connection.config()?.thinkingLevel || 'default_on');
@@ -317,6 +327,9 @@ export class Session {
     const previous = this.modelSelection();
     this.modelSelection(model.value);
 
+    // Update context window based on model
+    this.updateContextWindow(model.value);
+
     const channelId = this.claudeChannelId();
     if (!channelId) {
       return true;
@@ -327,10 +340,19 @@ export class Session {
 
     if (!response?.success) {
       this.modelSelection(previous);
+      this.updateContextWindow(previous);
       return false;
     }
 
     return true;
+  }
+
+  private updateContextWindow(modelId?: string): void {
+    const windowSize = modelId?.includes('[1m]') ? 1000000 : 200000;
+    const current = this.usageData();
+    if (current.contextWindow !== windowSize) {
+      this.usageData({ ...current, contextWindow: windowSize });
+    }
   }
 
   async setThinkingLevel(level: string): Promise<void> {
@@ -363,7 +385,7 @@ export class Session {
     }
 
     return connection.permissionRequested.add((request) => {
-      // 动态获取当前 channelId，避免闭包捕获旧值
+ // channelId，
       if (request.channelId === this.claudeChannelId()) {
         callback(request);
       }
@@ -390,27 +412,27 @@ export class Session {
   }
 
   private processIncomingMessage(event: any): void {
-    // 🔥 使用完整的消息处理流程
+ // 🔥
 
-    // 1. 获取当前消息数组（转为可变数组）
+ // 1. （）
     const currentMessages = [...this.messages()] as Message[];
 
-    // 2. 处理特殊消息（TodoWrite, usage 等）
+ // 2. （TodoWrite, usage ）
     this.processMessage(event);
 
-    // 3. 使用工具函数处理消息：
-    //    - 关联 tool_result 到 tool_use（响应式更新）
-    //    - 将原始事件转换为 Message 并添加到数组
+ // 3. ：
+ // - tool_result tool_use（）
+ // - Message
     processAndAttachMessage(currentMessages, event);
 
-    // 4. 合并连续 Read 消息为 ReadCoalesced（已禁用，保留作为参考）
+ // 4. Read ReadCoalesced（，）
     // const merged = mergeConsecutiveReadMessages(currentMessages);
 
-    // 5. 更新 messages signal
+ // 5. messages signal
     // this.messages(merged);
     this.messages(currentMessages);
 
-    // 6. 更新其他状态
+ // 6.
     if (event?.type === 'system') {
       this.sessionId(event.session_id);
       if (event.subtype === 'init') {
@@ -422,7 +444,7 @@ export class Session {
   }
 
   /**
-   * 处理特殊消息（TodoWrite, usage 统计）
+ * （TodoWrite, usage ）
    */
   private processMessage(event: any): void {
     if (
@@ -430,7 +452,7 @@ export class Session {
       event.message?.content &&
       Array.isArray(event.message.content)
     ) {
-      // 处理 TodoWrite
+ // TodoWrite
       for (const block of event.message.content) {
         if (
           block.type === 'tool_use' &&
@@ -443,7 +465,7 @@ export class Session {
         }
       }
 
-      // 处理 usage 统计
+ // usage
       if (event.message.usage) {
         this.updateUsage(event.message.usage);
       }
@@ -451,18 +473,22 @@ export class Session {
   }
 
   /**
-   * 更新 token 使用统计
+ * token
    */
   private updateUsage(usage: any): void {
-    const totalTokens =
-      usage.input_tokens +
-      (usage.cache_creation_input_tokens ?? 0) +
-      (usage.cache_read_input_tokens ?? 0) +
-      usage.output_tokens;
+    const inputTokens = usage.input_tokens ?? 0;
+    const outputTokens = usage.output_tokens ?? 0;
+    const cacheCreationTokens = usage.cache_creation_input_tokens ?? 0;
+    const cacheReadTokens = usage.cache_read_input_tokens ?? 0;
+    const totalTokens = inputTokens + cacheCreationTokens + cacheReadTokens + outputTokens;
 
     const current = this.usageData();
     this.usageData({
       totalTokens,
+      inputTokens,
+      outputTokens,
+      cacheCreationTokens,
+      cacheReadTokens,
       totalCost: current.totalCost,
       contextWindow: current.contextWindow
     });

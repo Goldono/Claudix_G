@@ -10,14 +10,27 @@ export interface PermissionEvent {
   permissionRequest: PermissionRequest;
 }
 
+const HIDDEN_STORAGE_KEY = 'claudix-hidden-session-ids';
+
 export class SessionStore {
   readonly sessions = signal<Session[]>([]);
   readonly activeSession = signal<Session | undefined>(undefined);
+  readonly hiddenSessionIds = signal<Set<string>>(SessionStore.loadHiddenIds());
   readonly permissionRequested = new EventEmitter<PermissionEvent>();
 
   readonly sessionsByLastModified = computed(() =>
     [...this.sessions()].sort((a, b) => b.lastModifiedTime() - a.lastModifiedTime())
   );
+
+  readonly visibleSessions = computed(() => {
+    const hidden = this.hiddenSessionIds();
+    return this.sessionsByLastModified().filter(s => { const id = s.sessionId(); return !id || !hidden.has(id); });
+  });
+
+  readonly hiddenSessions = computed(() => {
+    const hidden = this.hiddenSessionIds();
+    return this.sessionsByLastModified().filter(s => { const id = s.sessionId(); return id && hidden.has(id); });
+  });
 
   readonly connectionState = computed(() => this.connectionManager.state());
 
@@ -175,14 +188,37 @@ export class SessionStore {
     this.activeSession(session);
   }
 
+  hideSession(sessionId: string): void {
+    const next = new Set(this.hiddenSessionIds());
+    next.add(sessionId);
+    this.hiddenSessionIds(next);
+    SessionStore.saveHiddenIds(next);
+  }
+
+  unhideSession(sessionId: string): void {
+    const next = new Set(this.hiddenSessionIds());
+    next.delete(sessionId);
+    this.hiddenSessionIds(next);
+    SessionStore.saveHiddenIds(next);
+  }
+
+  private static loadHiddenIds(): Set<string> {
+    try { const raw = localStorage.getItem(HIDDEN_STORAGE_KEY); if (raw) return new Set(JSON.parse(raw)); } catch { /* ignore */ }
+    return new Set();
+  }
+
+  private static saveHiddenIds(ids: Set<string>): void {
+    try { localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify([...ids])); } catch { /* ignore */ }
+  }
+
   dispose(): void {
-    // 清理所有 effects
+ // effects
     for (const cleanup of this.effectCleanups) {
       cleanup();
     }
     this.effectCleanups = [];
 
-    // 清理所有 sessions
+ // sessions
     for (const session of this.sessions()) {
       session.dispose();
     }

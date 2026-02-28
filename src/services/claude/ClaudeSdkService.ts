@@ -1,15 +1,13 @@
 /**
- * ClaudeSdkService - Claude Agent SDK 薄封装
- *
- * 职责：
- * 1. 封装 @anthropic-ai/claude-agent-sdk 的 query() 调用
- * 2. 构建 SDK Options 对象
- * 3. 处理参数转换和环境配置
- * 4. 提供 interrupt() 方法中断查询
- *
- * 依赖：
- * - ILogService: 日志服务
- * - IConfigurationService: 配置服务
+ * ClaudeSdkService - Claude Agent SDK thin wrapper
+ * Responsibilities:
+ * 1. Wrap @anthropic-ai/claude-agent-sdk query() calls
+ * 2. Build SDK Options object
+ * 3. Handle parameter conversion and environment configuration
+ * 4. Provide interrupt() method to interrupt queries
+ * Dependencies:
+ * - ILogService: Log service
+ * - IConfigurationService: Configuration service
  */
 
 import * as vscode from 'vscode';
@@ -19,7 +17,7 @@ import { ILogService } from '../logService';
 import { IConfigurationService } from '../configurationService';
 import { AsyncStream } from './transport';
 
-// SDK 类型导入
+// SDK
 import type {
     Options,
     Query,
@@ -32,31 +30,31 @@ import type {
 export const IClaudeSdkService = createDecorator<IClaudeSdkService>('claudeSdkService');
 
 /**
- * SDK 查询参数
+ * SDK query parameters
  */
 export interface SdkQueryParams {
     inputStream: AsyncStream<SDKUserMessage>;
     resume: string | null;
     canUseTool: CanUseTool;
-    model: string | null;  // ← 接受 null，内部转换
+    model: string | null;  // ← Accepts null, converts internally
     cwd: string;
-    permissionMode: PermissionMode | string;  // ← 接受字符串
-    maxThinkingTokens?: number;  // ← Thinking tokens 上限
+    permissionMode: PermissionMode | string;  // ← Accepts string
+    maxThinkingTokens?: number;  // ← Thinking tokens limit
 }
 
 /**
- * SDK 服务接口
+ * SDK service interface
  */
 export interface IClaudeSdkService {
     readonly _serviceBrand: undefined;
 
     /**
-     * 调用 Claude SDK 进行查询
+     * Call Claude SDK to perform query
      */
     query(params: SdkQueryParams): Promise<Query>;
 
     /**
-     * 中断正在进行的查询
+     * Interrupt ongoing query
      */
     interrupt(query: Query): Promise<void>;
 }
@@ -79,7 +77,7 @@ const VS_CODE_APPEND_PROMPT = `
   The user's IDE selection (if any) is included in the conversation context and marked with ide_selection tags. This represents code or text the user has highlighted in their editor and may or may not be relevant to their request.`;
 
 /**
- * ClaudeSdkService 实现
+ * ClaudeSdkService implementation
  */
 export class ClaudeSdkService implements IClaudeSdkService {
     readonly _serviceBrand: undefined;
@@ -89,56 +87,56 @@ export class ClaudeSdkService implements IClaudeSdkService {
         @ILogService private readonly logService: ILogService,
         @IConfigurationService private readonly configService: IConfigurationService
     ) {
-        this.logService.info('[ClaudeSdkService] 已初始化');
+        this.logService.info('[ClaudeSdkService] Initialized');
     }
 
     /**
-     * 调用 Claude SDK 进行查询
+     * Call Claude SDK to perform query
      */
     async query(params: SdkQueryParams): Promise<Query> {
         const { inputStream, resume, canUseTool, model, cwd, permissionMode, maxThinkingTokens } = params;
 
         this.logService.info('========================================');
-        this.logService.info('ClaudeSdkService.query() 开始调用');
+        this.logService.info('ClaudeSdkService.query() starting call');
         this.logService.info('========================================');
-        this.logService.info(`📋 输入参数:`);
+        this.logService.info(`📋 Input parameters:`);
         this.logService.info(`  - model: ${model}`);
         this.logService.info(`  - cwd: ${cwd}`);
         this.logService.info(`  - permissionMode: ${permissionMode}`);
         this.logService.info(`  - resume: ${resume}`);
         this.logService.info(`  - maxThinkingTokens: ${maxThinkingTokens ?? 'undefined'}`);
 
-        // 参数转换
+        // Parameter conversion
         const modelParam = model === null ? "default" : model;
         const permissionModeParam = permissionMode as PermissionMode;
         const cwdParam = cwd;
 
-        this.logService.info(`🔄 参数转换:`);
+        this.logService.info(`🔄 Parameter conversion:`);
         this.logService.info(`  - modelParam: ${modelParam}`);
         this.logService.info(`  - permissionModeParam: ${permissionModeParam}`);
         this.logService.info(`  - cwdParam: ${cwdParam}`);
 
-        // 构建 SDK Options
+        // Build SDK Options
         const options: Options = {
-            // 基本参数
+            // Basic parameters
             cwd: cwdParam,
             resume: resume || undefined,
             model: modelParam,
             permissionMode: permissionModeParam,
             maxThinkingTokens: maxThinkingTokens,
 
-            // CanUseTool 回调
+            // CanUseTool callback
             canUseTool,
 
-            // 日志回调 - 捕获 SDK 进程的所有标准错误输出
+            // Log callback - capture all stderr output from SDK process
             stderr: (data: string) => {
-                const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+                const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
                 const lines = data.trim().split('\n');
 
                 for (const line of lines) {
                     if (!line.trim()) continue;
 
-                    // 检测错误级别
+                    // Detect error level
                     const lowerLine = line.toLowerCase();
                     let level = 'INFO';
 
@@ -154,10 +152,10 @@ export class ClaudeSdkService implements IClaudeSdkService {
                 }
             },
 
-            // 环境变量
+            // Environment variables
             env: this.getEnvironmentVariables(),
 
-            // 系统提示追加
+            // System prompt append
             systemPrompt: {
                 type: 'preset',
                 preset: 'claude_code',
@@ -166,7 +164,7 @@ export class ClaudeSdkService implements IClaudeSdkService {
 
             // Hooks
             hooks: {
-                // PreToolUse: 工具执行前
+                // PreToolUse: Before tool execution
                 PreToolUse: [{
                     matcher: "Edit|Write|MultiEdit",
                     hooks: [async (input, toolUseID, options) => {
@@ -176,7 +174,7 @@ export class ClaudeSdkService implements IClaudeSdkService {
                         return { continue: true };
                     }]
                 }] as HookCallbackMatcher[],
-                // PostToolUse: 工具执行后
+                // PostToolUse: After tool execution
                 PostToolUse: [{
                     matcher: "Edit|Write|MultiEdit",
                     hooks: [async (input, toolUseID, options) => {
@@ -188,41 +186,41 @@ export class ClaudeSdkService implements IClaudeSdkService {
                 }] as HookCallbackMatcher[]
             },
 
-            // CLI 可执行文件路径
+            // CLI executable path
             pathToClaudeCodeExecutable: this.getClaudeExecutablePath(),
 
-            // 额外参数
+            // Extra arguments
             extraArgs: {} as Record<string, string | null>,
 
-            // 设置源
-            // 'user': ~/.claude/settings.json (API 密钥)
-            // 'project': .claude/settings.json (项目设置, CLAUDE.md)
-            // 'local': .claude/settings.local.json (本地设置)
+            // Setting sources
+            // 'user': ~/.claude/settings.json (API key)
+            // 'project': .claude/settings.json (project settings, CLAUDE.md)
+            // 'local': .claude/settings.local.json (local settings)
             settingSources: ['user', 'project', 'local'],
 
             includePartialMessages: true,
         };
 
-        // 调用 SDK
+        // Call SDK
         this.logService.info('');
-        this.logService.info('🚀 准备调用 Claude Agent SDK');
+        this.logService.info('🚀 Preparing to call Claude Agent SDK');
         this.logService.info('----------------------------------------');
 
-        // 获取 CLI 路径（避免 TypeScript 类型推断问题）
+        // Get CLI path (avoid TypeScript type inference issues)
         const cliPath = this.getClaudeExecutablePath();
 
-        // 记录 CLI 路径
-        this.logService.info(`📂 CLI 可执行文件:`);
+        // Log CLI path
+        this.logService.info(`📂 CLI executable:`);
         this.logService.info(`  - Path: ${cliPath}`);
 
-        // 检查 CLI 是否存在
+        // Check if CLI exists
         if (!fs.existsSync(cliPath)) {
             this.logService.error(`❌ Claude CLI not found at: ${cliPath}`);
             throw new Error(`Claude CLI not found at: ${cliPath}`);
         }
-        this.logService.info(`  ✓ CLI 文件存在`);
+        this.logService.info(`  ✓ CLI file exists`);
 
-        // 检查文件权限
+        // Check file permissions
         try {
             const stats = fs.statSync(cliPath);
             this.logService.info(`  - File size: ${stats.size} bytes`);
@@ -231,25 +229,25 @@ export class ClaudeSdkService implements IClaudeSdkService {
             this.logService.warn(`  ⚠ Could not check file stats: ${e}`);
         }
 
-        // 设置入口点环境变量
+        // Set entrypoint environment variable
         process.env.CLAUDE_CODE_ENTRYPOINT = "claude-vscode";
-        this.logService.info(`🔧 环境变量:`);
+        this.logService.info(`🔧 Environment variables:`);
         this.logService.info(`  - CLAUDE_CODE_ENTRYPOINT: ${process.env.CLAUDE_CODE_ENTRYPOINT}`);
 
         this.logService.info('');
-        this.logService.info('📦 导入 SDK...');
+        this.logService.info('📦 Importing SDK...');
 
         try {
-            // 调用 SDK query() 函数
+            // Call SDK query() function
             const { query } = await import('@anthropic-ai/claude-agent-sdk');
 
-            this.logService.info(`  - Options: [已配置参数 ${Object.keys(options).join(', ')}]`);
+            this.logService.info(`  - Options: [Configured parameters ${Object.keys(options).join(', ')}]`);
 
             const result = query({ prompt: inputStream, options });
             return result;
         } catch (error) {
             this.logService.error('');
-            this.logService.error('❌❌❌ SDK 调用失败 ❌❌❌');
+            this.logService.error('❌❌❌ SDK call failed ❌❌❌');
             this.logService.error(`Error: ${error}`);
             if (error instanceof Error) {
                 this.logService.error(`Message: ${error.message}`);
@@ -261,21 +259,21 @@ export class ClaudeSdkService implements IClaudeSdkService {
     }
 
     /**
-     * 中断正在进行的查询
+     * Interrupt ongoing query
      */
     async interrupt(query: Query): Promise<void> {
         try {
-            this.logService.info('🛑 中断 Claude SDK 查询');
+            this.logService.info('🛑 Interrupting Claude SDK query');
             await query.interrupt();
-            this.logService.info('✓ 查询已中断');
+            this.logService.info('✓ Query interrupted');
         } catch (error) {
-            this.logService.error(`❌ 中断查询失败: ${error}`);
+            this.logService.error(`❌ Failed to interrupt query: ${error}`);
             throw error;
         }
     }
 
     /**
-     * 获取环境变量
+     * Get environment variables
      */
     private getEnvironmentVariables(): Record<string, string> {
         const config = vscode.workspace.getConfiguration("claudix");
@@ -292,7 +290,7 @@ export class ClaudeSdkService implements IClaudeSdkService {
     }
 
     /**
-     * 获取 Claude CLI 可执行文件路径
+     * Get Claude CLI executable path
      */
     private getClaudeExecutablePath(): string {
         const binaryName = process.platform === "win32" ? "claude.exe" : "claude";

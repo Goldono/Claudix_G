@@ -14,7 +14,6 @@
 
 /**
  * Copyright Joyent, Inc. and other Node contributors.
- *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the
  * "Software"), to deal in the Software without restriction, including
@@ -22,10 +21,8 @@
  * distribute, sublicense, and/or sell copies of the Software, and to permit
  * persons to whom the Software is furnished to do so, subject to the
  * following conditions:
- *
  * The above copyright notice and this permission notice shall be included
  * in all copies or substantial portions of the Software.
- *
  * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
  * OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
  * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
@@ -494,12 +491,10 @@ export const win32: IPath = {
 
 		// Make sure that the joined path doesn't start with two slashes, because
 		// normalize() will mistake it for a UNC path then.
-		//
 		// This step is skipped when it is very clear that the user actually
 		// intended to point at a UNC path. This is assumed when the first
 		// non-empty string arguments starts with exactly two slashes followed by
 		// at least one more non-slash character.
-		//
 		// Note that for normalize() to treat a path as a UNC path it needs to
 		// have at least 2 components, so we don't filter for that here.
 		// This means that the user can use join to construct UNC paths from

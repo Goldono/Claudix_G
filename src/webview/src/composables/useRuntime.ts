@@ -22,11 +22,11 @@ export function useRuntime(): RuntimeInstance {
   const connectionManager = new ConnectionManager(() => new VSCodeTransport(atMentionEvents, selectionEvents));
   const appContext = new AppContext(connectionManager);
 
-  // 创建 alien-signal 用于 SessionContext
-  // AppContext.currentSelection 是 Vue Ref，但 SessionContext 需要 alien-signal
+ // alien-signal SessionContext
+ // AppContext.currentSelection Vue Ref， SessionContext alien-signal
   const currentSelectionSignal = signal<SelectionRange | undefined>(undefined);
 
-  // 双向同步 Vue Ref ↔ Alien Signal
+ // Vue Ref ↔ Alien Signal
   // Vue Ref → Alien Signal
   watch(
     () => appContext.currentSelection(),
@@ -50,20 +50,20 @@ export function useRuntime(): RuntimeInstance {
     appContext.currentSelection(selection);
   });
 
-  // SessionStore 内部的 effect 会自动监听 connection 建立并拉取会话列表
+ // SessionStore effect connection
 
-  // 监听 claudeConfig 变化并注册 Slash Commands
+ // claudeConfig Slash Commands
   let slashCommandDisposers: Array<() => void> = [];
 
   const cleanupSlashCommands = effect(() => {
     const connection = connectionManager.connection();
     const claudeConfig = connection?.claudeConfig();
 
-    // 清理旧的 Slash Commands
+ // Slash Commands
     slashCommandDisposers.forEach(dispose => dispose());
     slashCommandDisposers = [];
 
-    // 注册新的 Slash Commands
+ // Slash Commands
     if (claudeConfig?.slashCommands && Array.isArray(claudeConfig.slashCommands)) {
       slashCommandDisposers = claudeConfig.slashCommands
         .filter((cmd: any) => typeof cmd?.name === 'string' && cmd.name)
@@ -112,14 +112,18 @@ export function useRuntime(): RuntimeInstance {
 
       await sessionStore.listSessions();
       if (!disposed && !sessionStore.activeSession()) {
-        await sessionStore.createSession({ isExplicit: false });
+        const visible = sessionStore.visibleSessions();
+        if (visible.length > 0) {
+          sessionStore.setActiveSession(visible[0]);
+        } else {
+          await sessionStore.createSession({ isExplicit: false });
+        }
       }
     })();
 
     onUnmounted(() => {
       disposed = true;
 
-      // 清理命令注册
       slashCommandDisposers.forEach(dispose => dispose());
       cleanupSlashCommands();
 

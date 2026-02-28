@@ -1,18 +1,14 @@
 /**
- * ClaudeAgentService - Claude Agent 核心编排服务
- *
- * 职责：
- * 1. 管理多个 Claude 会话（channels）
- * 2. 接收和分发来自 Transport 的消息
- * 3. 启动和控制 Claude 会话（launchClaude, interruptClaude）
- * 4. 路由请求到对应的 handlers
- * 5. RPC 请求-响应管理
- *
- * 依赖：
- * - IClaudeSdkService: SDK 调用
- * - IClaudeSessionService: 会话历史
- * - ILogService: 日志
- * - 其他基础服务
+ * ClaudeAgentService - Claude Agent
+ * 1. Claude （channels）
+ * 2. Transport
+ * 3. Claude （launchClaude, interruptClaude）
+ * 4. handlers
+ * 5. RPC -
+ * - IClaudeSdkService: SDK
+ * - IClaudeSessionService:
+ * - ILogService:
+ * -
  */
 
 import { createDecorator } from '../../di/instantiation';
@@ -29,7 +25,6 @@ import { AsyncStream, ITransport } from './transport';
 import { HandlerContext } from './handlers/types';
 import { IWebViewService } from '../webViewService';
 
-// 消息类型导入
 import type {
     WebViewToExtensionMessage,
     ExtensionToWebViewMessage,
@@ -40,7 +35,7 @@ import type {
     ToolPermissionResponse,
 } from '../../shared/messages';
 
-// SDK 类型导入
+// SDK
 import type {
     SDKMessage,
     SDKUserMessage,
@@ -51,7 +46,7 @@ import type {
     PermissionMode,
 } from '@anthropic-ai/claude-agent-sdk';
 
-// Handlers 导入
+// Handlers
 import {
     handleInit,
     handleGetClaudeState,
@@ -71,6 +66,10 @@ import {
     handleOpenContent,
     handleOpenURL,
     handleOpenConfigFile,
+    handleRevertFileEdit,
+    handleGetUsageInfo,
+    handleReadFileContents,
+    handleShowEditDiff,
     // handleOpenClaudeInTerminal,
     // handleGetAuthStatus,
     // handleLogin,
@@ -80,19 +79,17 @@ import {
 export const IClaudeAgentService = createDecorator<IClaudeAgentService>('claudeAgentService');
 
 // ============================================================================
-// 类型定义
 // ============================================================================
 
 /**
- * Channel 对象：管理单个 Claude 会话
+ * Channel ： Claude
  */
 export interface Channel {
-    in: AsyncStream<SDKUserMessage>;  // 输入流：向 SDK 发送用户消息
-    query: Query;                      // Query 对象：从 SDK 接收响应
+ in: AsyncStream<SDKUserMessage>; // ： SDK
+ query: Query; // Query ： SDK
 }
 
 /**
- * 请求处理器
  */
 interface RequestHandler {
     resolve: (value: any) => void;
@@ -100,28 +97,26 @@ interface RequestHandler {
 }
 
 /**
- * Claude Agent 服务接口
+ * Claude Agent
  */
 export interface IClaudeAgentService {
     readonly _serviceBrand: undefined;
 
     /**
-     * 设置 Transport
+ * Transport
      */
     setTransport(transport: ITransport): void;
 
     /**
-     * 启动消息循环
      */
     start(): void;
 
     /**
-     * 接收来自客户端的消息
      */
     fromClient(message: WebViewToExtensionMessage): Promise<void>;
 
     /**
-     * 启动 Claude 会话
+ * Claude
      */
     launchClaude(
         channelId: string,
@@ -133,80 +128,69 @@ export interface IClaudeAgentService {
     ): Promise<void>;
 
     /**
-     * 中断 Claude 会话
+ * Claude
      */
     interruptClaude(channelId: string): Promise<void>;
 
     /**
-     * 关闭会话
      */
     closeChannel(channelId: string, sendNotification: boolean, error?: string): void;
 
     /**
-     * 关闭所有会话
      */
     closeAllChannels(): Promise<void>;
 
     /**
-     * 凭证变更时关闭所有通道
      */
     closeAllChannelsWithCredentialChange(): Promise<void>;
 
     /**
-     * 处理请求
      */
     processRequest(request: RequestMessage, signal: AbortSignal): Promise<unknown>;
 
     /**
-     * 设置权限模式
      */
     setPermissionMode(channelId: string, mode: PermissionMode): Promise<void>;
 
     /**
-     * 设置 Thinking Level
+ * Thinking Level
      */
     setThinkingLevel(channelId: string, level: string): Promise<void>;
 
     /**
-     * 设置模型
      */
     setModel(channelId: string, model: string): Promise<void>;
 
     /**
-     * 关闭
      */
     shutdown(): Promise<void>;
 }
 
 // ============================================================================
-// ClaudeAgentService 实现
+// ClaudeAgentService
 // ============================================================================
 
 /**
- * Claude Agent 服务实现
+ * Claude Agent
  */
 export class ClaudeAgentService implements IClaudeAgentService {
     readonly _serviceBrand: undefined;
 
-    // Transport 适配器
+ // Transport
     private transport?: ITransport;
 
-    // 会话管理
     private channels = new Map<string, Channel>();
 
-    // 接收来自客户端的消息流
     private fromClientStream = new AsyncStream<WebViewToExtensionMessage>();
 
-    // 等待响应的请求
     private outstandingRequests = new Map<string, RequestHandler>();
 
-    // 取消控制器
     private abortControllers = new Map<string, AbortController>();
 
-    // Handler 上下文（缓存）
+ // Handler （）
     private handlerContext: HandlerContext;
 
-    // Thinking Level 配置
+ // Thinking Level
     private thinkingLevel: string = 'default_on';
 
     constructor(
@@ -221,7 +205,7 @@ export class ClaudeAgentService implements IClaudeAgentService {
         @IClaudeSessionService private readonly sessionService: IClaudeSessionService,
         @IWebViewService private readonly webViewService: IWebViewService
     ) {
-        // 构建 Handler 上下文
+ // Handler
         this.handlerContext = {
             logService: this.logService,
             configService: this.configService,
@@ -232,44 +216,39 @@ export class ClaudeAgentService implements IClaudeAgentService {
             tabsAndEditorsService: this.tabsAndEditorsService,
             sessionService: this.sessionService,
             sdkService: this.sdkService,
-            agentService: this,  // 自身引用
+ agentService: this,
             webViewService: this.webViewService,
         };
     }
 
     /**
-     * 设置 Transport
+ * Transport
      */
     setTransport(transport: ITransport): void {
         this.transport = transport;
 
-        // 监听来自客户端的消息，推入队列
         transport.onMessage(async (message) => {
             await this.fromClient(message);
         });
 
-        this.logService.info('[ClaudeAgentService] Transport 已连接');
+ this.logService.info('[ClaudeAgentService] Transport ');
     }
 
     /**
-     * 启动消息循环
      */
     start(): void {
-        // 启动消息循环
         this.readFromClient();
 
-        this.logService.info('[ClaudeAgentService] 消息循环已启动');
+ this.logService.info('[ClaudeAgentService] ');
     }
 
     /**
-     * 接收来自客户端的消息
      */
     async fromClient(message: WebViewToExtensionMessage): Promise<void> {
         this.fromClientStream.enqueue(message);
     }
 
     /**
-     * 从客户端读取并分发消息
      */
     private async readFromClient(): Promise<void> {
         try {
@@ -324,7 +303,7 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     /**
-     * 启动 Claude 会话
+ * Claude
      */
     async launchClaude(
         channelId: string,
@@ -334,17 +313,17 @@ export class ClaudeAgentService implements IClaudeAgentService {
         permissionMode: string,
         thinkingLevel: string | null
     ): Promise<void> {
-        // 保存 thinkingLevel
+ // thinkingLevel
         if (thinkingLevel) {
             this.thinkingLevel = thinkingLevel;
         }
 
-        // 计算 maxThinkingTokens
+ // maxThinkingTokens
         const maxThinkingTokens = this.getMaxThinkingTokens(this.thinkingLevel);
 
         this.logService.info('');
         this.logService.info('╔════════════════════════════════════════╗');
-        this.logService.info('║  启动 Claude 会话                       ║');
+ this.logService.info('║ Claude ║');
         this.logService.info('╚════════════════════════════════════════╝');
         this.logService.info(`  Channel ID: ${channelId}`);
         this.logService.info(`  Resume: ${resume || 'null'}`);
@@ -355,27 +334,26 @@ export class ClaudeAgentService implements IClaudeAgentService {
         this.logService.info(`  Max Thinking Tokens: ${maxThinkingTokens}`);
         this.logService.info('');
 
-        // 检查是否已存在
         if (this.channels.has(channelId)) {
-            this.logService.error(`❌ Channel 已存在: ${channelId}`);
+ this.logService.error(`❌ Channel : ${channelId}`);
             throw new Error(`Channel already exists: ${channelId}`);
         }
 
         try {
-            // 1. 创建输入流
-            this.logService.info('📝 步骤 1: 创建输入流');
+ // 1.
+ this.logService.info('📝 1: ');
             const inputStream = new AsyncStream<SDKUserMessage>();
-            this.logService.info('  ✓ 输入流创建完成');
+ this.logService.info(' ✓ ');
 
-            // 2. 调用 spawnClaude
+ // 2. spawnClaude
             this.logService.info('');
-            this.logService.info('📝 步骤 2: 调用 spawnClaude()');
+ this.logService.info('📝 2: spawnClaude()');
             const query = await this.spawnClaude(
                 inputStream,
                 resume,
                 async (toolName, input, options) => {
-                    // 工具权限回调：通过 RPC 请求 WebView 确认
-                    this.logService.info(`🔧 工具权限请求: ${toolName}`);
+ // ： RPC WebView
+ this.logService.info(`🔧 : ${toolName}`);
                     return this.requestToolPermission(
                         channelId,
                         toolName,
@@ -388,28 +366,37 @@ export class ClaudeAgentService implements IClaudeAgentService {
                 permissionMode,
                 maxThinkingTokens
             );
-            this.logService.info('  ✓ spawnClaude() 完成，Query 对象已创建');
+ this.logService.info(' ✓ spawnClaude() ，Query ');
 
-            // 3. 存储到 channels Map
+ // 3. channels Map
             this.logService.info('');
-            this.logService.info('📝 步骤 3: 注册 Channel');
+ this.logService.info('📝 3: Channel');
             this.channels.set(channelId, {
                 in: inputStream,
                 query: query
             });
-            this.logService.info(`  ✓ Channel 已注册，当前 ${this.channels.size} 个活跃会话`);
+ this.logService.info(` ✓ Channel ， ${this.channels.size} `);
 
-            // 4. 启动监听任务：将 SDK 输出转发给客户端
+ // 4. ： SDK
             this.logService.info('');
-            this.logService.info('📝 步骤 4: 启动消息转发循环');
+ this.logService.info('📝 4: ');
             (async () => {
                 try {
-                    this.logService.info(`  → 开始监听 Query 输出...`);
+ this.logService.info(` → Query ...`);
                     let messageCount = 0;
 
                     for await (const message of query) {
                         messageCount++;
-                        this.logService.info(`  ← 收到消息 #${messageCount}: ${message.type}`);
+ this.logService.info(` ← #${messageCount}: ${message.type}`);
+                        // Debug: dump all keys to find hidden rate limit data
+                        if (message.type === 'result') {
+                            this.logService.info(`    [RESULT] All keys: ${JSON.stringify(Object.keys(message))}`);
+                        } else if (message.type === 'assistant') {
+                            const extra = Object.keys(message).filter(k => !['type','message','parent_tool_use_id','error','uuid','session_id'].includes(k));
+                            if (extra.length > 0) {
+                                this.logService.info(`    [ASSISTANT] Extra keys: ${JSON.stringify(extra)}`);
+                            }
+                        }
 
                         this.transport!.send({
                             type: "io_message",
@@ -419,12 +406,10 @@ export class ClaudeAgentService implements IClaudeAgentService {
                         });
                     }
 
-                    // 正常结束
-                    this.logService.info(`  ✓ Query 输出完成，共 ${messageCount} 条消息`);
+ this.logService.info(` ✓ Query ， ${messageCount} messages`);
                     this.closeChannel(channelId, true);
                 } catch (error) {
-                    // 出错
-                    this.logService.error(`  ❌ Query 输出错误: ${error}`);
+ this.logService.error(` ❌ Query : ${error}`);
                     if (error instanceof Error) {
                         this.logService.error(`     Stack: ${error.stack}`);
                     }
@@ -433,12 +418,12 @@ export class ClaudeAgentService implements IClaudeAgentService {
             })();
 
             this.logService.info('');
-            this.logService.info('✓ Claude 会话启动成功');
+ this.logService.info('✓ Claude ');
             this.logService.info('════════════════════════════════════════');
             this.logService.info('');
         } catch (error) {
             this.logService.error('');
-            this.logService.error('❌❌❌ Claude 会话启动失败 ❌❌❌');
+ this.logService.error('❌❌❌ Claude ❌❌❌');
             this.logService.error(`Channel: ${channelId}`);
             this.logService.error(`Error: ${error}`);
             if (error instanceof Error) {
@@ -453,30 +438,29 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     /**
-     * 中断 Claude 会话
+ * Claude
      */
     async interruptClaude(channelId: string): Promise<void> {
         const channel = this.channels.get(channelId);
         if (!channel) {
-            this.logService.warn(`[ClaudeAgentService] Channel 不存在: ${channelId}`);
+ this.logService.warn(`[ClaudeAgentService] Channel : ${channelId}`);
             return;
         }
 
         try {
             await this.sdkService.interrupt(channel.query);
-            this.logService.info(`[ClaudeAgentService] 已中断 Channel: ${channelId}`);
+ this.logService.info(`[ClaudeAgentService] Channel: ${channelId}`);
         } catch (error) {
-            this.logService.error(`[ClaudeAgentService] 中断失败:`, error);
+ this.logService.error(`[ClaudeAgentService] :`, error);
         }
     }
 
     /**
-     * 关闭会话
      */
     closeChannel(channelId: string, sendNotification: boolean, error?: string): void {
-        this.logService.info(`[ClaudeAgentService] 关闭 Channel: ${channelId}`);
+ this.logService.info(`[ClaudeAgentService] Channel: ${channelId}`);
 
-        // 1. 发送关闭通知
+ // 1.
         if (sendNotification && this.transport) {
             this.transport.send({
                 type: "close_channel",
@@ -485,7 +469,7 @@ export class ClaudeAgentService implements IClaudeAgentService {
             });
         }
 
-        // 2. 清理 channel
+ // 2. channel
         const channel = this.channels.get(channelId);
         if (channel) {
             channel.in.done();
@@ -497,20 +481,19 @@ export class ClaudeAgentService implements IClaudeAgentService {
             this.channels.delete(channelId);
         }
 
-        this.logService.info(`  ✓ Channel 已关闭，剩余 ${this.channels.size} 个活跃会话`);
+ this.logService.info(` ✓ Channel ， ${this.channels.size} `);
     }
 
     /**
-     * 启动 Claude SDK
-     *
-     * @param inputStream 输入流，用于发送用户消息
-     * @param resume 恢复会话 ID
-     * @param canUseTool 工具权限回调
-     * @param model 模型名称
-     * @param cwd 工作目录
-     * @param permissionMode 权限模式
-     * @param maxThinkingTokens 最大思考 tokens
-     * @returns SDK Query 对象
+ * Claude SDK
+ * @param inputStream ，
+ * @param resume ID
+ * @param canUseTool
+ * @param model
+ * @param cwd
+ * @param permissionMode
+ * @param maxThinkingTokens tokens
+ * @returns SDK Query
      */
     protected async spawnClaude(
         inputStream: AsyncStream<SDKUserMessage>,
@@ -533,7 +516,6 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     /**
-     * 关闭所有会话
      */
     async closeAllChannels(): Promise<void> {
         const promises = Array.from(this.channels.keys()).map(channelId =>
@@ -544,7 +526,6 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     /**
-     * 凭证变更时关闭所有通道
      */
     async closeAllChannelsWithCredentialChange(): Promise<void> {
         const promises = Array.from(this.channels.keys()).map(channelId =>
@@ -555,7 +536,7 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     /**
-     * 传输消息到 Channel
+ * Channel
      */
     private transportMessage(
         channelId: string,
@@ -567,19 +548,16 @@ export class ClaudeAgentService implements IClaudeAgentService {
             throw new Error(`Channel not found: ${channelId}`);
         }
 
-        // 用户消息加入输入流
         if (message.type === "user") {
             channel.in.enqueue(message as SDKUserMessage);
         }
 
-        // 如果标记为结束，关闭输入流
         if (done) {
             channel.in.done();
         }
     }
 
     /**
-     * 处理来自客户端的请求
      */
     private async handleRequest(message: RequestMessage): Promise<void> {
         const abortController = new AbortController();
@@ -608,7 +586,6 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     /**
-     * 处理请求
      */
     async processRequest(message: RequestMessage, signal: AbortSignal): Promise<unknown> {
         const request = message.request;
@@ -618,11 +595,10 @@ export class ClaudeAgentService implements IClaudeAgentService {
             throw new Error('Invalid request format');
         }
 
-        this.logService.info(`[ClaudeAgentService] 处理请求: ${request.type}`);
+ this.logService.info(`[ClaudeAgentService] : ${request.type}`);
 
-        // 路由表：将请求类型映射到 handler
+ // ： handler
         switch (request.type) {
-            // 初始化和状态
             case "init":
                 return handleInit(request, this.handlerContext);
 
@@ -635,7 +611,6 @@ export class ClaudeAgentService implements IClaudeAgentService {
             case "get_asset_uris":
                 return handleGetAssetUris(request, this.handlerContext);
 
-            // 编辑器操作
             case "open_file":
                 return handleOpenFile(request, this.handlerContext);
 
@@ -648,7 +623,7 @@ export class ClaudeAgentService implements IClaudeAgentService {
             case "open_content":
                 return handleOpenContent(request, this.handlerContext, signal);
 
-            // UI 操作
+ // UI
             case "show_notification":
                 return handleShowNotification(request, this.handlerContext);
 
@@ -661,7 +636,6 @@ export class ClaudeAgentService implements IClaudeAgentService {
             case "open_url":
                 return handleOpenURL(request, this.handlerContext);
 
-            // 设置
             case "set_permission_mode": {
                 if (!channelId) {
                     throw new Error('channelId is required for set_permission_mode');
@@ -704,28 +678,36 @@ export class ClaudeAgentService implements IClaudeAgentService {
             case "open_config_file":
                 return handleOpenConfigFile(request, this.handlerContext);
 
-            // 会话管理
             case "list_sessions_request":
                 return handleListSessions(request, this.handlerContext);
 
             case "get_session_request":
                 return handleGetSession(request, this.handlerContext);
 
-        // 文件操作
         case "list_files_request":
             return handleListFiles(request, this.handlerContext);
 
         case "stat_path_request":
             return handleStatPath(request as any, this.handlerContext);
 
-            // 进程操作
             case "exec":
                 return handleExec(request, this.handlerContext);
+
+            case "revert_file_edit":
+                return handleRevertFileEdit(request as any, this.handlerContext);
+
+            case "get_usage_info":
+                return handleGetUsageInfo(request as any, this.handlerContext);
+
+            case "read_file_contents_request":
+                return handleReadFileContents(request as any, this.handlerContext);
+
+            case "show_edit_diff":
+                return handleShowEditDiff(request as any, this.handlerContext);
 
             // case "open_claude_in_terminal":
             //     return handleOpenClaudeInTerminal(request, this.handlerContext);
 
-            // 认证
             // case "get_auth_status":
             //     return handleGetAuthStatus(request, this.handlerContext);
 
@@ -741,7 +723,6 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     /**
-     * 处理响应
      */
     private handleResponse(message: ResponseMessage): void {
         const handler = this.outstandingRequests.get(message.requestId);
@@ -754,12 +735,11 @@ export class ClaudeAgentService implements IClaudeAgentService {
             }
             this.outstandingRequests.delete(message.requestId);
         } else {
-            this.logService.warn(`[ClaudeAgentService] 没有找到请求处理器: ${message.requestId}`);
+ this.logService.warn(`[ClaudeAgentService] : ${message.requestId}`);
         }
     }
 
     /**
-     * 处理取消
      */
     private handleCancellation(requestId: string): void {
         const abortController = this.abortControllers.get(requestId);
@@ -770,7 +750,6 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     /**
-     * 发送请求到客户端
      */
     protected sendRequest<TRequest extends ExtensionRequest, TResponse>(
         channelId: string,
@@ -779,10 +758,9 @@ export class ClaudeAgentService implements IClaudeAgentService {
         const requestId = this.generateId();
 
         return new Promise<TResponse>((resolve, reject) => {
-            // 注册 Promise handlers
+ // Promise handlers
             this.outstandingRequests.set(requestId, { resolve, reject });
 
-            // 发送请求
             this.transport!.send({
                 type: "request",
                 channelId,
@@ -790,13 +768,11 @@ export class ClaudeAgentService implements IClaudeAgentService {
                 request
             } as RequestMessage);
         }).finally(() => {
-            // 清理
             this.outstandingRequests.delete(requestId);
         });
     }
 
     /**
-     * 请求工具权限
      */
     protected async requestToolPermission(
         channelId: string,
@@ -820,7 +796,6 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     /**
-     * 关闭服务
      */
     async shutdown(): Promise<void> {
         await this.closeAllChannels();
@@ -828,37 +803,35 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     // ========================================================================
-    // 工具方法
     // ========================================================================
 
     /**
-     * 生成唯一 ID
+ * ID
      */
     private generateId(): string {
         return Math.random().toString(36).substring(2, 15);
     }
 
     /**
-     * 获取当前工作目录
      */
     private getCwd(): string {
         return this.workspaceService.getDefaultWorkspaceFolder()?.uri.fsPath || process.cwd();
     }
 
     /**
-     * 获取 maxThinkingTokens（根据 thinking level）
+ * maxThinkingTokens（ thinking level）
      */
     private getMaxThinkingTokens(level: string): number {
         return level === 'off' ? 0 : 31999;
     }
 
     /**
-     * 设置 thinking level
+ * thinking level
      */
     async setThinkingLevel(channelId: string, level: string): Promise<void> {
         this.thinkingLevel = level;
 
-        // 更新正在运行的 channel
+ // channel
         const channel = this.channels.get(channelId);
         if (channel?.query) {
             const maxTokens = this.getMaxThinkingTokens(level);
@@ -868,7 +841,6 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     /**
-     * 设置权限模式
      */
     async setPermissionMode(channelId: string, mode: PermissionMode): Promise<void> {
         const channel = this.channels.get(channelId);
@@ -882,7 +854,6 @@ export class ClaudeAgentService implements IClaudeAgentService {
     }
 
     /**
-     * 设置模型
      */
     async setModel(channelId: string, model: string): Promise<void> {
         const channel = this.channels.get(channelId);
@@ -891,10 +862,9 @@ export class ClaudeAgentService implements IClaudeAgentService {
             throw new Error(`Channel ${channelId} not found`);
         }
 
-        // 设置模型到 channel
+ // channel
         await channel.query.setModel(model);
 
-        // 保存到配置
         await this.configService.updateValue('claudix.selectedModel', model);
 
         this.logService.info(`[setModel] Set channel ${channelId} to model: ${model}`);

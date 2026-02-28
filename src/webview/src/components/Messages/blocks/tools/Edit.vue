@@ -4,35 +4,48 @@
     tool-name="Edit"
     :tool-result="toolResult"
     :default-expanded="shouldExpand"
+    :show-revert-button="showRevertButton"
+    :is-reverted="isReverted"
+    :revert-loading="revertLoading"
     :class="{ 'has-diff-view': hasDiffView }"
+    @toggle-revert="handleToggleRevert"
   >
     <template #main>
-      <span class="tool-label">Edit</span>
-      <ToolFilePath v-if="filePath" :file-path="filePath" :context="context" />
-      <span v-if="diffStats" class="diff-stats">
-        <span v-if="diffStats.added > 0" class="stat-add">+{{ diffStats.added }}</span>
-        <span v-if="diffStats.removed > 0" class="stat-remove">-{{ diffStats.removed }}</span>
-      </span>
+      <ToolFilePath
+        v-if="filePath"
+        :file-path="filePath"
+        :context="context"
+        :search-text="toolUse?.input?.new_string"
+        :diff-edits="editDiffEdits"
+      />
+      <template v-if="diffStats && (diffStats.added > 0 || diffStats.removed > 0)">
+        <div class="diff-minibar">
+          <div v-if="diffStats.added > 0" class="minibar-add" :style="{ flex: diffStats.added }" />
+          <div v-if="diffStats.removed > 0" class="minibar-del" :style="{ flex: diffStats.removed }" />
+        </div>
+        <span class="diff-stats">
+          <span v-if="diffStats.added > 0" class="stat-add">+{{ diffStats.added }}</span>
+          <span v-if="diffStats.removed > 0" class="stat-remove">-{{ diffStats.removed }}</span>
+        </span>
+      </template>
     </template>
 
-    <!-- 展开内容：显示 diff 视图 -->
+    <!-- ： diff -->
     <template #expandable>
-      <!-- 替换选项 -->
       <div v-if="replaceAll" class="replace-option">
         <span class="codicon codicon-replace-all"></span>
-        <span>全部替换</span>
+ <span></span>
       </div>
 
-      <!-- Diff 视图 -->
-      <div v-if="structuredPatch && structuredPatch.length > 0" class="diff-view">
-        <!-- 文件标题栏 -->
+      <!-- Diff -->
+      <div v-if="structuredPatch && structuredPatch.length > 0" class="diff-view" :class="{ 'diff-reverted': isReverted }">
         <div v-if="filePath" class="diff-file-header">
           <FileIcon :file-name="filePath" :size="16" class="file-icon" />
           <span class="file-name">{{ fileName }}</span>
         </div>
-        <!-- Diff 双列布局:行号 + 内容 -->
+        <!-- Diff : + -->
         <div class="diff-scroll-container">
-          <!-- 左侧:行号列 -->
+          <!-- : -->
           <div ref="lineNumbersRef" class="diff-line-numbers">
             <div v-for="(patch, index) in structuredPatch" :key="index">
               <div
@@ -46,7 +59,7 @@
             </div>
           </div>
 
-          <!-- 右侧:内容列(可滚动) -->
+          <!-- :() -->
           <div ref="contentRef" class="diff-content" @scroll="handleContentScroll">
             <div v-for="(patch, index) in structuredPatch" :key="index" class="diff-block">
               <div class="diff-lines">
@@ -65,7 +78,6 @@
         </div>
       </div>
 
-      <!-- 错误内容 -->
       <ToolError :tool-result="toolResult" />
     </template>
   </ToolMessageWrapper>
@@ -89,6 +101,43 @@ interface Props {
 
 const props = defineProps<Props>();
 
+// Revert state
+const isReverted = ref(false);
+const revertLoading = ref(false);
+
+const showRevertButton = computed(() => {
+  return !!props.toolResult && !props.toolResult.is_error && !!filePath.value;
+});
+
+async function handleToggleRevert() {
+  if (revertLoading.value || !props.context?.revertFileEdit) return;
+  revertLoading.value = true;
+  try {
+    const action = isReverted.value ? 'reapply' : 'revert';
+    const result = await props.context.revertFileEdit(
+      action,
+      filePath.value,
+      'edit',
+      {
+        oldString: props.toolUse?.input?.old_string,
+        newString: props.toolUse?.input?.new_string,
+      }
+    );
+    if (result.success) {
+      isReverted.value = !isReverted.value;
+    } else if (result.error === 'conflict') {
+      await props.context.showNotification?.(
+        'Datei wurde zwischenzeitlich geändert. Rückgängig nicht möglich.',
+        'warning'
+      );
+    } else {
+      await props.context.showNotification?.(`Fehler: ${result.error}`, 'error');
+    }
+  } finally {
+    revertLoading.value = false;
+  }
+}
+
 const filePath = computed(() => {
   return props.toolUse?.input?.file_path || '';
 });
@@ -98,29 +147,36 @@ const fileName = computed(() => {
   return path.basename(filePath.value);
 });
 
+const editDiffEdits = computed(() => {
+  const old_string = props.toolUse?.input?.old_string;
+  const new_string = props.toolUse?.input?.new_string;
+  if (!old_string || !new_string) return undefined;
+  return [{ oldString: old_string, newString: new_string, replaceAll: !!props.toolUse?.input?.replace_all }];
+});
+
 const replaceAll = computed(() => {
   return props.toolUse?.input?.replace_all;
 });
 
-// 使用 ref 存储 structuredPatch，通过 watch 更新
+// ref structuredPatch， watch
 const structuredPatch = ref<any>(null);
 
-// 监听 props 变化，更新 structuredPatch
+// props ， structuredPatch
 watch(
   () => [props.toolUseResult, props.toolUse, props.toolResult],
   () => {
 
-    // 如果有错误，不显示 diff
+ // ， diff
     if (props.toolResult?.is_error) {
       structuredPatch.value = null;
       return;
     }
 
-    // 优先使用 toolUseResult 中的 structuredPatch (执行后返回的真实 diff)
+ // toolUseResult structuredPatch ( diff)
     if (props.toolUseResult?.structuredPatch) {
       structuredPatch.value = props.toolUseResult.structuredPatch;
     }
-    // 如果有 input,生成临时 diff(权限请求阶段或实时对话执行完成后保留)
+ // input, diff()
     else if (props.toolUse?.input?.old_string && props.toolUse?.input?.new_string) {
       structuredPatch.value = generatePatchFromInput(
         props.toolUse.input.old_string,
@@ -135,7 +191,7 @@ const hasDiffView = computed(() => {
   return structuredPatch.value && structuredPatch.value.length > 0;
 });
 
-// 判断是否为权限请求阶段(临时 diff from input)
+// ( diff from input)
 const isPermissionRequest = computed(() => {
   const hasToolUseResult = !!props.toolUseResult?.structuredPatch;
   const hasInputDiff = !!(props.toolUse?.input?.old_string && props.toolUse?.input?.new_string);
@@ -143,36 +199,32 @@ const isPermissionRequest = computed(() => {
   return !hasToolUseResult && hasInputDiff;
 });
 
-// 只在权限请求阶段默认展开,执行完成后不展开
 const shouldExpand = computed(() => {
   const result = hasDiffView.value && isPermissionRequest.value;
   return result;
 });
 
-// DOM 引用
+// DOM
 const lineNumbersRef = ref<HTMLElement>();
 const contentRef = ref<HTMLElement>();
 
-// 同步行号列和内容列的垂直滚动
 function handleContentScroll() {
   if (lineNumbersRef.value && contentRef.value) {
     lineNumbersRef.value.scrollTop = contentRef.value.scrollTop;
   }
 }
 
-// 从 old_string 和 new_string 生成简单的 patch
+// old_string new_string patch
 function generatePatchFromInput(oldStr: string, newStr: string): any[] {
   const oldLines = oldStr.split('\n');
   const newLines = newStr.split('\n');
 
   const lines: string[] = [];
 
-  // 添加删除的行
   oldLines.forEach(line => {
     lines.push('-' + line);
   });
 
-  // 添加新增的行
   newLines.forEach(line => {
     lines.push('+' + line);
   });
@@ -186,7 +238,7 @@ function generatePatchFromInput(oldStr: string, newStr: string): any[] {
   }];
 }
 
-// 计算 diff 统计
+// diff
 const diffStats = computed(() => {
   if (!structuredPatch.value) return null;
 
@@ -203,14 +255,13 @@ const diffStats = computed(() => {
   return { added, removed };
 });
 
-// 获取 diff 行的类型类名
+// diff
 function getDiffLineClass(line: string): string {
   if (line.startsWith('-')) return 'diff-line-delete';
   if (line.startsWith('+')) return 'diff-line-add';
   return 'diff-line-context';
 }
 
-// 获取行前缀
 function getLinePrefix(line: string): string {
   if (line.startsWith('-') || line.startsWith('+')) {
     return line[0];
@@ -218,7 +269,7 @@ function getLinePrefix(line: string): string {
   return ' ';
 }
 
-// 获取行内容（去除前缀）
+// （）
 function getLineContent(line: string): string {
   if (line.startsWith('-') || line.startsWith('+')) {
     return line.substring(1);
@@ -226,12 +277,11 @@ function getLineContent(line: string): string {
   return line;
 }
 
-// 计算行号（删除行显示旧行号，添加行显示新行号）
+// （，）
 function getLineNumber(patch: any, lineIndex: number): string {
   const currentLine = patch.lines[lineIndex];
 
   if (currentLine.startsWith('-')) {
-    // 删除行：显示旧行号
     let oldLine = patch.oldStart;
     for (let i = 0; i < lineIndex; i++) {
       const line = patch.lines[i];
@@ -241,7 +291,6 @@ function getLineNumber(patch: any, lineIndex: number): string {
     }
     return String(oldLine);
   } else if (currentLine.startsWith('+')) {
-    // 添加行：显示新行号
     let newLine = patch.newStart;
     for (let i = 0; i < lineIndex; i++) {
       const line = patch.lines[i];
@@ -251,7 +300,6 @@ function getLineNumber(patch: any, lineIndex: number): string {
     }
     return String(newLine);
   } else {
-    // 上下文行：显示新行号
     let newLine = patch.newStart;
     for (let i = 0; i < lineIndex; i++) {
       const line = patch.lines[i];
@@ -265,25 +313,54 @@ function getLineNumber(patch: any, lineIndex: number): string {
 </script>
 
 <style scoped>
-/* 有 diff 视图时移除左侧边框和边距，error 保留默认样式 */
+/* diff ，error */
 .has-diff-view :deep(.expandable-content) {
   border-left: none;
   padding: 0;
   margin-left: 0;
 }
 
-.tool-label {
-  font-weight: 500;
+.header-file-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.header-filename {
+  font-size: 0.85em;
+  font-family: var(--vscode-editor-font-family);
   color: var(--vscode-foreground);
-  font-size: 0.9em;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.diff-minibar {
+  display: flex;
+  height: 10px;
+  width: 36px;
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.minibar-add {
+  background-color: var(--vscode-gitDecoration-addedResourceForeground);
+  min-width: 2px;
+}
+
+.minibar-del {
+  background-color: var(--vscode-gitDecoration-deletedResourceForeground);
+  min-width: 2px;
 }
 
 .diff-stats {
   display: flex;
   gap: 4px;
-  margin-left: 8px;
-  font-size: 0.85em;
-  font-weight: 500;
+  font-size: 0.8em;
+  font-weight: 600;
+  flex-shrink: 0;
 }
 
 .stat-add {
@@ -347,7 +424,7 @@ function getLineNumber(patch: any, lineIndex: number): string {
   background-color: var(--vscode-editor-background);
 }
 
-/* 左侧行号列 */
+/* */
 .diff-line-numbers {
   width: 50px;
   flex-shrink: 0;
@@ -367,14 +444,14 @@ function getLineNumber(patch: any, lineIndex: number): string {
   user-select: none;
 }
 
-/* 右侧内容列 */
+/* */
 .diff-content {
   flex: 1;
   overflow: auto;
   position: relative;
 }
 
-/* Monaco 风格滚动条(仅应用于内容列) */
+/* Monaco () */
 .diff-content::-webkit-scrollbar {
   width: 14px;
   height: 14px;
@@ -476,5 +553,10 @@ function getLineNumber(patch: any, lineIndex: number): string {
 
 .diff-line-context .line-content {
   color: var(--vscode-editor-foreground);
+}
+
+.diff-reverted {
+  opacity: 0.35;
+  pointer-events: none;
 }
 </style>

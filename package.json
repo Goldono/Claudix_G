@@ -97,6 +97,7 @@
     "prepackage": "pnpm run build && cp README.md README.md.bak && sed -i '' 's|https://awesome.re/mentioned-badge.svg|assets/mentioned-badge.png|g' README.md",
     "package": "vsce package --no-dependencies",
     "postpackage": "mv README.md.bak README.md",
+    "deploy": "pnpm run build && node -e \"const fs=require('fs');const r=fs.readFileSync('README.md','utf8');fs.writeFileSync('README.md',r.replace('https://awesome.re/mentioned-badge.svg','assets/mentioned-badge.png'));\" && pnpm exec vsce package --no-dependencies && node -e \"const fs=require('fs');const r=fs.readFileSync('README.md','utf8');fs.writeFileSync('README.md',r.replace('assets/mentioned-badge.png','https://awesome.re/mentioned-badge.svg'));\" && code --install-extension claudix-vscode-0.3.9.vsix --force",
     "lint": "eslint src --ext ts",
     "lint:fix": "eslint src --ext ts --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,vue}\" && eslint src --ext ts,tsx,vue --fix"

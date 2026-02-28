@@ -1,8 +1,7 @@
 /**
- * Claude Agent Handlers - 统一处理器文件
- *
- * 职责：处理所有来自 WebView 的请求
- * 依赖：通过 HandlerContext 注入所有服务
+ * Claude Agent Handlers -
+ * ： WebView
+ * ： HandlerContext
  */
 
 import * as vscode from 'vscode';
@@ -54,12 +53,19 @@ import type {
     OpenConfigFileResponse,
     OpenClaudeInTerminalRequest,
     OpenClaudeInTerminalResponse,
+    RevertFileEditRequest,
+    RevertFileEditResponse,
+    GetUsageInfoRequest,
+    GetUsageInfoResponse,
+    ReadFileContentsRequest,
+    ReadFileContentsResponse,
+    ShowEditDiffRequest,
+    ShowEditDiffResponse,
 } from '../../../shared/messages';
 import type { HandlerContext } from './types';
 import type { PermissionMode, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { AsyncStream } from '../transport/AsyncStream';
 /**
- * 初始化请求
  */
 export async function handleInit(
     _request: InitRequest,
@@ -67,21 +73,19 @@ export async function handleInit(
 ): Promise<InitResponse> {
     const { configService, workspaceService, logService, agentService } = context;
 
-    logService.info('[handleInit] 处理初始化请求');
+ logService.info('[handleInit] ');
 
-    // TODO: 从 AuthManager 获取认证状态
+ // TODO: AuthManager
     // const authStatus = null;
 
-    // 获取模型设置
     const modelSetting = configService.getValue<string>('claudix.selectedModel') || 'default';
 
-    // 获取默认工作目录
     const defaultCwd = workspaceService.getDefaultWorkspaceFolder()?.uri.fsPath || process.cwd();
 
-    // TODO: 从配置获取 openNewInTab
+ // TODO: openNewInTab
     const openNewInTab = false;
 
-    // 获取 thinking level (默认值)
+ // thinking level ()
     const thinkingLevel = 'default_on';
 
     return {
@@ -98,7 +102,7 @@ export async function handleInit(
 }
 
 /**
- * 获取 Claude 状态
+ * Claude
  */
 export async function handleGetClaudeState(
     _request: GetClaudeStateRequest,
@@ -106,7 +110,7 @@ export async function handleGetClaudeState(
 ): Promise<GetClaudeStateResponse> {
     const { logService } = context;
 
-    logService.info('[handleGetClaudeState] 获取 Claude 状态');
+ logService.info('[handleGetClaudeState] Claude ');
 
     const config = await loadConfig(context);
 
@@ -117,7 +121,7 @@ export async function handleGetClaudeState(
 }
 
 /**
- * 获取 MCP 服务器
+ * MCP
  */
 export async function handleGetMcpServers(
     _request: GetMcpServersRequest,
@@ -128,7 +132,7 @@ export async function handleGetMcpServers(
 }
 
 /**
- * 获取资源 URI
+ * URI
  */
 export async function handleGetAssetUris(
     _request: GetAssetUrisRequest,
@@ -141,7 +145,6 @@ export async function handleGetAssetUris(
 }
 
 /**
- * 打开文件
  */
 export async function handleOpenFile(
     request: OpenFileRequest,
@@ -166,8 +169,21 @@ export async function handleOpenFile(
         const editor = await vscode.window.showTextDocument(doc, { preview: false });
 
         if (location) {
-            const startLine = Math.max((location.startLine ?? 1) - 1, 0);
-            const endLine = Math.max((location.endLine ?? location.startLine ?? 1) - 1, startLine);
+            let startLine = Math.max((location.startLine ?? 1) - 1, 0);
+            let endLine = Math.max((location.endLine ?? location.startLine ?? 1) - 1, startLine);
+
+            if (location.searchText) {
+                const text = doc.getText();
+                const needle = location.searchText.replace(/\r\n/g, '\n');
+                const haystack = text.replace(/\r\n/g, '\n');
+                const idx = haystack.indexOf(needle);
+                if (idx >= 0) {
+                    const beforeMatch = haystack.substring(0, idx);
+                    startLine = beforeMatch.split('\n').length - 1;
+                    endLine = startLine + needle.split('\n').length - 1;
+                }
+            }
+
             const startColumn = Math.max(location.startColumn ?? 0, 0);
             const endColumn = Math.max(location.endColumn ?? startColumn, startColumn);
 
@@ -183,13 +199,12 @@ export async function handleOpenFile(
         return { type: "open_file_response" };
     } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        logService.error(`[handleOpenFile] 打开文件失败: ${errorMsg}`);
+ logService.error(`[handleOpenFile] : ${errorMsg}`);
         throw new Error(`Failed to open file: ${errorMsg}`);
     }
 }
 
 /**
- * 获取当前编辑器选区
  */
 export async function handleGetCurrentSelection(
     context: HandlerContext
@@ -219,7 +234,6 @@ export async function handleGetCurrentSelection(
 }
 
 /**
- * 显示通知
  */
 export async function handleShowNotification(
     request: ShowNotificationRequest,
@@ -248,7 +262,7 @@ export async function handleShowNotification(
 }
 
 /**
- * 新建会话标签页（聚焦侧边栏）
+ * （）
  */
 export async function handleNewConversationTab(
     _request: NewConversationTabRequest,
@@ -268,7 +282,7 @@ export async function handleNewConversationTab(
 }
 
 /**
- * 重命名标签（目前仅占位）
+ * （）
  */
 export async function handleRenameTab(
     _request: RenameTabRequest,
@@ -280,7 +294,7 @@ export async function handleRenameTab(
 }
 
 /**
- * 打开 Diff 编辑器
+ * Diff
  */
 export async function handleOpenDiff(
     request: OpenDiffRequest,
@@ -329,7 +343,6 @@ export async function handleOpenDiff(
 }
 
 /**
- * 列出历史会话
  */
 export async function handleListSessions(
     _request: ListSessionsRequest,
@@ -341,7 +354,7 @@ export async function handleListSessions(
         const cwd = workspaceService.getDefaultWorkspaceFolder()?.uri.fsPath || process.cwd();
         const sessions = await sessionService.listSessions(cwd);
 
-        // 添加 worktree 和 isCurrentWorkspace 字段
+ // worktree isCurrentWorkspace
         const sessionsWithMeta = sessions.map(session => ({
             ...session,
             worktree: undefined,
@@ -362,7 +375,6 @@ export async function handleListSessions(
 }
 
 /**
- * 获取会话详情
  */
 export async function handleGetSession(
     request: GetSessionRequest,
@@ -388,7 +400,6 @@ export async function handleGetSession(
 }
 
 /**
- * 执行命令
  */
 export async function handleExec(
     request: ExecRequest,
@@ -437,7 +448,6 @@ export async function handleExec(
 }
 
 /**
- * 列出文件
  */
 export async function handleListFiles(
     request: ListFilesRequest,
@@ -453,7 +463,7 @@ export async function handleListFiles(
 }
 
 /**
- * 统计路径类型（文件 / 目录 / 其它）
+ * （ / / ）
  */
 export async function handleStatPath(
     request: StatPathRequest,
@@ -492,7 +502,69 @@ export async function handleStatPath(
 }
 
 /**
- * 打开内容（临时文件编辑）
+ * Read file contents for fulltext injection
+ */
+export async function handleReadFileContents(
+    request: ReadFileContentsRequest,
+    context: HandlerContext
+): Promise<ReadFileContentsResponse> {
+    const { workspaceService, fileSystemService } = context;
+    const cwd = workspaceService.getDefaultWorkspaceFolder()?.uri.fsPath || process.cwd();
+    const paths = Array.isArray(request.paths) ? request.paths : [];
+    const files: ReadFileContentsResponse["files"] = [];
+    for (const raw of paths) {
+        if (!raw || typeof raw !== "string") continue;
+        const absolute = fileSystemService.normalizeAbsolutePath(raw, cwd);
+        const fileName = path.basename(absolute);
+        try {
+            const uri = vscode.Uri.file(absolute);
+            const data = await fileSystemService.readFile(uri);
+            const content = Buffer.from(data).toString("utf-8");
+            files.push({ path: raw, fileName, content });
+        } catch (err: any) {
+            files.push({ path: raw, fileName, content: "", error: err?.message || "Failed to read file" });
+        }
+    }
+    return { type: "read_file_contents_response", files };
+}
+
+/**
+ * Show edit diff: LEFT = before, RIGHT = current file
+ */
+export async function handleShowEditDiff(
+    request: ShowEditDiffRequest,
+    context: HandlerContext
+): Promise<ShowEditDiffResponse> {
+    const { workspaceService, fileSystemService } = context;
+    const cwd = workspaceService.getDefaultWorkspaceFolder()?.uri.fsPath || process.cwd();
+    const absolutePath = fileSystemService.normalizeAbsolutePath(request.filePath, cwd);
+    try {
+        const currentContent = await fs.promises.readFile(absolutePath, 'utf-8');
+        let beforeContent = currentContent;
+        for (const edit of request.edits) {
+            const search = edit.newString.replace(/\r\n/g, '\n');
+            const replace = edit.oldString.replace(/\r\n/g, '\n');
+            const normalized = beforeContent.replace(/\r\n/g, '\n');
+            if (edit.replaceAll) {
+                beforeContent = normalized.split(search).join(replace);
+            } else {
+                const idx = normalized.indexOf(search);
+                if (idx >= 0) {
+                    beforeContent = normalized.slice(0, idx) + replace + normalized.slice(idx + search.length);
+                }
+            }
+        }
+        const baseName = path.basename(absolutePath);
+        const tempPath = await fileSystemService.createTempFile(`${baseName}.before`, beforeContent);
+        await vscode.commands.executeCommand("vscode.diff", vscode.Uri.file(tempPath), vscode.Uri.file(absolutePath), `${baseName} (Edit)`, { preview: true });
+        return { type: "show_edit_diff_response", success: true };
+    } catch {
+        return { type: "show_edit_diff_response", success: false };
+    }
+}
+
+/**
+ * （）
  */
 export async function handleOpenContent(
     request: OpenContentRequest,
@@ -530,7 +602,7 @@ export async function handleOpenContent(
 }
 
 /**
- * 打开 URL
+ * URL
  */
 export async function handleOpenURL(
     request: OpenURLRequest,
@@ -548,13 +620,12 @@ export async function handleOpenURL(
 }
 
 /**
- * 获取认证状态
  */
 // export async function handleGetAuthStatus(
 //     _request: GetAuthStatusRequest,
 //     context: HandlerContext
 // ): Promise<GetAuthStatusResponse> {
-//     // TODO: 实现认证状态获取
+// // TODO:
 //     // const status = authManager?.getAuthStatus();
 
 //     return {
@@ -564,7 +635,6 @@ export async function handleOpenURL(
 // }
 
 /**
- * 登录
  */
 // export async function handleLogin(
 //     request: LoginRequest,
@@ -573,10 +643,10 @@ export async function handleOpenURL(
 //     const { logService, agentService } = context;
 //     const { method } = request;
 
-//     // TODO: 实现认证流程
+// // TODO:
 //     logService.info(`Login requested with method: ${method}`);
 
-//     // 关闭所有现有通道
+//
 //     await agentService.closeAllChannelsWithCredentialChange();
 
 //     return {
@@ -588,7 +658,7 @@ export async function handleOpenURL(
 // }
 
 /**
- * 提交 OAuth 代码
+ * OAuth
  */
 // export async function handleSubmitOAuthCode(
 //     request: SubmitOAuthCodeRequest,
@@ -597,7 +667,7 @@ export async function handleOpenURL(
 //     const { logService } = context;
 //     const { code } = request;
 
-//     // TODO: 实现 OAuth 代码提交
+// // TODO: OAuth
 //     logService.info(`OAuth code submitted: ${code.substring(0, 10)}...`);
 
 //     return {
@@ -606,7 +676,6 @@ export async function handleOpenURL(
 // }
 
 /**
- * 打开配置文件
  */
 export async function handleOpenConfigFile(
     request: OpenConfigFileRequest,
@@ -615,11 +684,10 @@ export async function handleOpenConfigFile(
     const { configType } = request;
 
     try {
-        // VS Code 设置
+ // VS Code
         if (configType === "vscode") {
             await vscode.commands.executeCommand('workbench.action.openSettings', 'claudix');
         }
-        // 用户配置文件
         else {
             const configPath = getConfigFilePath(configType);
             const uri = vscode.Uri.file(configPath);
@@ -634,7 +702,7 @@ export async function handleOpenConfigFile(
 }
 
 /**
- * 在终端打开 Claude
+ * Claude
  */
 export async function handleOpenClaudeInTerminal(
     _request: OpenClaudeInTerminalRequest,
@@ -660,11 +728,9 @@ export async function handleOpenClaudeInTerminal(
 }
 
 // ============================================================================
-// 配置和状态管理
 // ============================================================================
 
 /**
- * 加载配置缓存
  */
 async function loadConfig(context: HandlerContext): Promise<any> {
     const { logService, sdkService, workspaceService } = context;
@@ -701,7 +767,7 @@ async function loadConfig(context: HandlerContext): Promise<any> {
 }
 
 /**
- * 获取 MCP 服务器状态
+ * MCP
  */
 async function getMcpServers(
     context: HandlerContext,
@@ -713,7 +779,7 @@ async function getMcpServers(
         throw new Error('Channel ID is required');
     }
 
-    // TODO: 通过 agentService 获取 channel
+ // TODO: agentService channel
     // const channel = agentService.getChannel(channelId);
 
     try {
@@ -732,7 +798,7 @@ async function getMcpServers(
 }
 
 /**
- * 获取资源 URI
+ * URI
  */
 function getAssetUris(context: HandlerContext): Record<string, { light: string; dark: string }> {
     const { webViewService } = context;
@@ -753,7 +819,7 @@ function getAssetUris(context: HandlerContext): Record<string, { light: string; 
         }
     } as const;
 
-    // TODO: 获取 extensionPath
+ // TODO: extensionPath
     const extensionPath = process.cwd();
 
     const toWebviewUri = (relativePath: string) =>
@@ -773,7 +839,6 @@ function getAssetUris(context: HandlerContext): Record<string, { light: string; 
 }
 
 // ============================================================================
-// 辅助方法
 // ============================================================================
 
 async function prepareDiffRightFile(
@@ -923,5 +988,151 @@ function getConfigFilePath(configType: string): string {
             return path.join(homeDir, ".claude", "config.json");
         default:
             return path.join(homeDir, ".claude", `${configType}.json`);
+    }
+}
+
+// ============================================================================
+// File Revert/Re-apply
+// ============================================================================
+
+export async function handleRevertFileEdit(
+    request: RevertFileEditRequest,
+    context: HandlerContext
+): Promise<RevertFileEditResponse> {
+    const { logService, workspaceService } = context;
+    const { action, filePath, editType, oldString, newString, fileContents, previousContents } = request;
+
+    logService.info(`[RevertFileEdit] ${action} ${editType} on ${filePath}`);
+
+    try {
+        const cwd = workspaceService.getDefaultWorkspaceFolder()?.uri.fsPath || process.cwd();
+        const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+
+        if (editType === 'edit') {
+            // For Edit: swap old_string <-> new_string in the file
+            const searchStr = action === 'revert' ? newString : oldString;
+            const replaceStr = action === 'revert' ? oldString : newString;
+
+            if (!searchStr || !replaceStr) {
+                return { type: 'revert_file_edit_response', success: false, error: 'Missing old/new string data' };
+            }
+
+            const content = await fs.promises.readFile(absolutePath, 'utf-8');
+            let actualSearch = searchStr;
+            let actualReplace = replaceStr;
+            let fileContent = content;
+            if (!content.includes(searchStr)) {
+                const normalizedContent = content.replace(/\r\n/g, '\n');
+                const normalizedSearch = searchStr.replace(/\r\n/g, '\n');
+                if (!normalizedContent.includes(normalizedSearch)) {
+                    const trimmedContent = normalizedContent.replace(/[ \t]+\n/g, '\n');
+                    const trimmedSearch = normalizedSearch.replace(/[ \t]+\n/g, '\n');
+                    if (!trimmedContent.includes(trimmedSearch)) {
+                        return { type: 'revert_file_edit_response', success: false, error: 'conflict' };
+                    }
+                }
+                fileContent = normalizedContent;
+                actualSearch = searchStr.replace(/\r\n/g, '\n');
+                actualReplace = replaceStr.replace(/\r\n/g, '\n');
+            }
+            const updated = fileContent.replace(actualSearch, actualReplace);
+            await fs.promises.writeFile(absolutePath, updated, 'utf-8');
+            return { type: 'revert_file_edit_response', success: true };
+
+        } else if (editType === 'write') {
+            if (action === 'revert') {
+                if (previousContents === null) {
+                    // File was newly created → delete it
+                    await fs.promises.unlink(absolutePath);
+                } else if (previousContents !== undefined) {
+                    await fs.promises.writeFile(absolutePath, previousContents, 'utf-8');
+                }
+            } else {
+                // Re-apply: write the file contents back
+                if (fileContents) {
+                    await fs.promises.writeFile(absolutePath, fileContents, 'utf-8');
+                }
+            }
+            return { type: 'revert_file_edit_response', success: true };
+        }
+
+        return { type: 'revert_file_edit_response', success: false, error: 'Unknown edit type' };
+
+    } catch (err: any) {
+        logService.error(`[RevertFileEdit] Error: ${err.message}`);
+        return { type: 'revert_file_edit_response', success: false, error: err.message };
+    }
+}
+
+// ============================================================================
+// Usage Info (Rate Limits)
+// ============================================================================
+
+export async function handleGetUsageInfo(
+    _request: GetUsageInfoRequest,
+    context: HandlerContext
+): Promise<GetUsageInfoResponse> {
+    const { logService } = context;
+
+    logService.info('[GetUsageInfo] Fetching usage info...');
+
+    try {
+        // Read credentials
+        const homeDir = os.homedir();
+        const credPath = path.join(homeDir, '.claude', '.credentials.json');
+        if (!fs.existsSync(credPath)) {
+            return { type: 'get_usage_info_response', success: false, error: 'No credentials found' };
+        }
+
+        const credRaw = fs.readFileSync(credPath, 'utf-8');
+        const cred = JSON.parse(credRaw);
+        const oauth = cred.claudeAiOauth;
+
+        if (!oauth?.accessToken) {
+            return { type: 'get_usage_info_response', success: false, error: 'No OAuth token' };
+        }
+
+        // Fetch usage data from Anthropic's OAuth usage endpoint
+        const resp = await fetch('https://api.anthropic.com/api/oauth/usage', {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${oauth.accessToken}`,
+                'anthropic-beta': 'oauth-2025-04-20',
+                'Content-Type': 'application/json',
+            },
+        });
+
+        if (!resp.ok) {
+            logService.error(`[GetUsageInfo] API error: ${resp.status}`);
+            return { type: 'get_usage_info_response', success: false, error: `API error ${resp.status}` };
+        }
+
+        const data = await resp.json() as any;
+        logService.info(`[GetUsageInfo] Got usage data: 5h=${data.five_hour?.utilization}%, 7d=${data.seven_day?.utilization}%`);
+
+        const parseReset = (s: string | null): number | null => {
+            if (!s) return null;
+            return Math.floor(new Date(s).getTime() / 1000);
+        };
+
+        return {
+            type: 'get_usage_info_response',
+            success: true,
+            email: oauth.email || cred.email,
+            subscriptionType: oauth.subscriptionType,
+            rateLimitTier: oauth.rateLimitTier,
+            fiveHour: {
+                utilization: data.five_hour?.utilization != null ? data.five_hour.utilization / 100 : null,
+                resetsAt: parseReset(data.five_hour?.resets_at),
+            },
+            sevenDay: {
+                utilization: data.seven_day?.utilization != null ? data.seven_day.utilization / 100 : null,
+                resetsAt: parseReset(data.seven_day?.resets_at),
+            },
+        };
+
+    } catch (err: any) {
+        logService.error(`[GetUsageInfo] Error: ${err.message}`);
+        return { type: 'get_usage_info_response', success: false, error: err.message };
     }
 }

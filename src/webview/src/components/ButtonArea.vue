@@ -22,6 +22,12 @@
         <TokenIndicator
           v-if="showProgress"
           :percentage="progressPercentage"
+          :input-tokens="usageData?.inputTokens ?? 0"
+          :output-tokens="usageData?.outputTokens ?? 0"
+          :cache-creation-tokens="usageData?.cacheCreationTokens ?? 0"
+          :cache-read-tokens="usageData?.cacheReadTokens ?? 0"
+          :total-tokens="usageData?.totalTokens ?? 0"
+          :context-window="usageData?.contextWindow ?? 200000"
         />
 
         <!-- Thinking Toggle Button -->
@@ -33,6 +39,17 @@
           :title="isThinkingOn ? 'Thinking on' : 'Thinking off'"
         >
           <span class="codicon codicon-brain text-[16px]!" />
+        </button>
+
+        <!-- Fulltext Toggle Button -->
+        <button
+          class="action-button fulltext-button"
+          :class="{ 'fulltext-active': fullTextMode }"
+          @click="emit('fullTextToggle')"
+          :aria-label="fullTextMode ? 'Fulltext injection on' : 'Fulltext injection off'"
+          :title="fullTextMode ? 'Dateien als Volltext senden (AN)' : 'Dateien als Volltext senden (AUS)'"
+        >
+          <span class="codicon codicon-file-code text-[16px]!" />
         </button>
 
         <!-- Command Button with Dropdown -->
@@ -47,7 +64,6 @@
           @close="handleDropdownClose"
           @search="handleSearch"
         >
-          <!-- 自定义触发器按钮 -->
           <template #trigger>
             <button
               class="action-button"
@@ -57,7 +73,6 @@
             </button>
           </template>
 
-          <!-- 下拉内容 -->
           <template #content="{ close }">
             <div @mouseleave="commandCompletion.handleMouseLeave">
               <template v-for="(item, index) in commandCompletion.items.value" :key="item.id">
@@ -75,58 +90,6 @@
             </div>
           </template>
         </DropdownTrigger>
-
-        <!-- Mention Button with Dropdown -->
-        <DropdownTrigger
-          ref="mentionDropdownRef"
-          :show-search="true"
-          search-placeholder="Search files..."
-          align="left"
-          :selected-index="fileCompletion.activeIndex.value"
-          :data-nav="fileCompletion.navigationMode.value"
-          @open="handleMentionDropdownOpen"
-          @close="handleMentionDropdownClose"
-          @search="handleMentionSearch"
-        >
-          <!-- 自定义触发器按钮 -->
-          <template #trigger>
-            <button
-              class="action-button"
-              aria-label="Mention File"
-            >
-              <span class="codicon codicon-mention text-[16px]!" />
-            </button>
-          </template>
-
-          <!-- 下拉内容 -->
-          <template #content="{ close }">
-            <div @mouseleave="fileCompletion.handleMouseLeave">
-              <template v-for="(item, index) in fileCompletion.items.value" :key="item.id">
-                <DropdownItem
-                  :item="item"
-                  :index="index"
-                  :is-selected="index === fileCompletion.activeIndex.value"
-                  @click="(item) => handleFileClick(item, close)"
-                  @mouseenter="fileCompletion.handleMouseEnter(index)"
-                >
-                  <!-- 使用 FileIcon 组件显示文件图标 -->
-                  <template #icon v-if="'data' in item && item.data?.file">
-                    <FileIcon :file-name="item.data.file.name" :size="16" />
-                  </template>
-                </DropdownItem>
-              </template>
-            </div>
-          </template>
-        </DropdownTrigger>
-
-        <!-- Sparkle Button -->
-        <button
-          class="action-button"
-          @click="handleSparkleClick"
-          aria-label="Sparkle"
-        >
-          <span class="codicon codicon-wand text-[16px]!" />
-        </button>
 
         <!-- Attach File Button -->
         <button
@@ -172,12 +135,10 @@ import { ref, computed, inject } from 'vue'
 import TokenIndicator from './TokenIndicator.vue'
 import ModeSelect from './ModeSelect.vue'
 import ModelSelect from './ModelSelect.vue'
-import FileIcon from './FileIcon.vue'
 import { DropdownTrigger, DropdownItem, DropdownSeparator, DropdownSectionHeader } from './Dropdown'
 import { RuntimeKey } from '../composables/runtimeContext'
 import { useCompletionDropdown } from '../composables/useCompletionDropdown'
 import { getSlashCommands, commandToDropdownItem } from '../providers/slashCommandProvider'
-import { getFileReferences, fileToDropdownItem } from '../providers/fileReferenceProvider'
 
 interface Props {
   disabled?: boolean
@@ -187,8 +148,10 @@ interface Props {
   hasInputContent?: boolean
   showProgress?: boolean
   progressPercentage?: number
+  usageData?: { inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number; totalTokens: number; contextWindow: number } | null
   thinkingLevel?: string
   permissionMode?: PermissionMode
+  fullTextMode?: boolean
 }
 
 interface Emits {
@@ -196,9 +159,8 @@ interface Emits {
   (e: 'stop'): void
   (e: 'attach'): void
   (e: 'addAttachment', files: FileList): void
-  (e: 'mention', filePath?: string): void
   (e: 'thinkingToggle'): void
-  (e: 'sparkle'): void
+  (e: 'fullTextToggle'): void
   (e: 'modeSelect', mode: PermissionMode): void
   (e: 'modelSelect', modelId: string): void
 }
@@ -206,71 +168,56 @@ interface Emits {
 const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   loading: false,
-  selectedModel: 'claude-opus-4-5',
+  selectedModel: 'claude-sonnet-4-6',
   conversationWorking: false,
   hasInputContent: false,
   showProgress: true,
   progressPercentage: 48.7,
   thinkingLevel: 'default_on',
-  permissionMode: 'default'
+  permissionMode: 'default',
+  fullTextMode: false
 })
 
 const emit = defineEmits<Emits>()
 
 const fileInputRef = ref<HTMLInputElement>()
 const commandDropdownRef = ref<InstanceType<typeof DropdownTrigger>>()
-const mentionDropdownRef = ref<InstanceType<typeof DropdownTrigger>>()
 
-// 获取 runtime 以访问 CommandRegistry
+// runtime CommandRegistry
 const runtime = inject(RuntimeKey)
 
-// === 使用新的 Completion Dropdown Composable ===
+// === Completion Dropdown Composable ===
 
-// Slash Command 补全
+// Slash Command
 const commandCompletion = useCompletionDropdown({
   mode: 'manual',
   provider: (query) => getSlashCommands(query, runtime),
   toDropdownItem: commandToDropdownItem,
   onSelect: (command) => {
-    // 执行命令
     if (runtime) {
       runtime.appContext.commandRegistry.executeCommand(command.id)
     }
     commandCompletion.close()
   },
-  showSectionHeaders: false, // 目前不显示分组，保持简洁
+ showSectionHeaders: false,
   searchFields: ['label', 'description']
-})
-
-// @ 文件引用补全
-const fileCompletion = useCompletionDropdown({
-  mode: 'manual',
-  provider: (query) => getFileReferences(query, runtime),
-  toDropdownItem: fileToDropdownItem,
-  onSelect: (file) => {
-    // 触发 mention 事件并传递文件路径
-    emit('mention', file.path)
-    fileCompletion.close()
-  },
-  showSectionHeaders: false,
-  searchFields: ['name', 'path']
 })
 
 
 const isThinkingOn = computed(() => props.thinkingLevel !== 'off')
 
 const submitVariant = computed(() => {
-  // 对齐 React：busy 时始终显示停止按钮
+ // React：busy
   if (props.conversationWorking) {
     return 'stop'
   }
 
-  // 未 busy 且无输入 -> 禁用
+ // busy ->
   if (!props.hasInputContent) {
     return 'disabled'
   }
 
-  // 其余 -> 可发送
+ // ->
   return 'enabled'
 })
 
@@ -286,43 +233,19 @@ function handleSubmit() {
 function handleCommandClick(item: any, close: () => void) {
   console.log('Command clicked:', item)
 
-  // 使用 commandCompletion 选择命令
+ // commandCompletion
   if (item.data?.command) {
-    // 找到命令在列表中的索引并选择
     const index = commandCompletion.items.value.findIndex(i => i.id === item.id)
     if (index !== -1) {
       commandCompletion.selectIndex(index)
     }
   }
 
-  // 关闭菜单
-  close()
-}
-
-// File (Mention) dropdown handlers
-function handleFileClick(item: any, close: () => void) {
-  console.log('File clicked:', item)
-
-  // 使用 fileCompletion 选择文件
-  if (item.data?.file) {
-    const index = fileCompletion.items.value.findIndex(i => i.id === item.id)
-    if (index !== -1) {
-      // 先设置 activeIndex，再调用 selectActive
-      fileCompletion.activeIndex.value = index
-      fileCompletion.selectActive()
-    }
-  }
-
-  // 关闭菜单
   close()
 }
 
 function handleThinkingToggle() {
   emit('thinkingToggle')
-}
-
-function handleSparkleClick() {
-  emit('sparkle')
 }
 
 function handleAttachClick() {
@@ -333,58 +256,33 @@ function handleFileUpload(event: Event) {
   const target = event.target as HTMLInputElement
   if (target.files && target.files.length > 0) {
     emit('addAttachment', target.files)
-    // 清空 input，允许重复选择同一文件
+ // input，
     target.value = ''
   }
 }
 
-// Command dropdown - 打开时的处理
+// Command dropdown -
 function handleDropdownOpen() {
   commandCompletion.open()
-  // 添加键盘事件监听
   document.addEventListener('keydown', handleCommandKeydown)
 }
 
-// Command dropdown - 关闭时的处理
+// Command dropdown -
 function handleDropdownClose() {
   commandCompletion.close()
-  // 移除键盘事件监听
   document.removeEventListener('keydown', handleCommandKeydown)
 }
 
-// Command dropdown - 搜索事件处理
+// Command dropdown - Search
 function handleSearch(term: string) {
   commandCompletion.handleSearch(term)
 }
 
-// Command dropdown - 键盘事件处理
+// Command dropdown -
 function handleCommandKeydown(event: KeyboardEvent) {
   commandCompletion.handleKeydown(event)
 }
 
-// Mention dropdown - 打开时的处理
-function handleMentionDropdownOpen() {
-  fileCompletion.open()
-  // 添加键盘事件监听
-  document.addEventListener('keydown', handleMentionKeydown)
-}
-
-// Mention dropdown - 关闭时的处理
-function handleMentionDropdownClose() {
-  fileCompletion.close()
-  // 移除键盘事件监听
-  document.removeEventListener('keydown', handleMentionKeydown)
-}
-
-// Mention dropdown - 搜索事件处理
-function handleMentionSearch(term: string) {
-  fileCompletion.handleSearch(term)
-}
-
-// Mention dropdown - 键盘事件处理
-function handleMentionKeydown(event: KeyboardEvent) {
-  fileCompletion.handleKeydown(event)
-}
 
 </script>
 
@@ -462,13 +360,26 @@ function handleMentionKeydown(event: KeyboardEvent) {
   opacity: 1;
 }
 
-/* Think 按钮专用：取消 hover opacity 效果，避免 off 状态下的误解 */
+/* Think ： hover opacity ， off */
 .action-button.think-button:hover:not(.thinking-active) {
-  opacity: 0.5; /* 保持默认 opacity，不增加到 1 */
+ opacity: 0.5; /* opacity， 1 */
 }
 
-/* 激活状态下的 hover 可以保持 */
+/* hover */
 .action-button.think-button.thinking-active:hover {
+  opacity: 1;
+}
+
+.action-button.fulltext-active {
+  color: var(--vscode-button-secondaryForeground);
+  opacity: 1;
+}
+
+.action-button.fulltext-button:hover:not(.fulltext-active) {
+  opacity: 0.5;
+}
+
+.action-button.fulltext-button.fulltext-active:hover {
   opacity: 1;
 }
 

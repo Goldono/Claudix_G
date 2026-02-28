@@ -23,8 +23,8 @@ interface RequestHandler {
 }
 
 /**
- * WebView ↔ Extension 传输抽象基类
- * - 使用 alien-signals 管理状态（统一架构）
+ * WebView ↔ Extension
+ * - alien-signals （）
  */
 export abstract class BaseTransport {
   readonly state = signal<ConnectionState>("connecting");
@@ -194,6 +194,23 @@ export abstract class BaseTransport {
   exec(command: string, params: string[]): Promise<any> {
     return this.sendRequest({ type: "exec", command, params });
   }
+  revertFileEdit(
+    action: 'revert' | 'reapply',
+    filePath: string,
+    editType: 'edit' | 'write',
+    options: { oldString?: string; newString?: string; fileContents?: string; previousContents?: string | null }
+  ): Promise<any> {
+    return this.sendRequest({ type: "revert_file_edit", action, filePath, editType, ...options } as any);
+  }
+  getUsageInfo(): Promise<any> {
+    return this.sendRequest({ type: "get_usage_info" } as any);
+  }
+  readFileContents(paths: string[]): Promise<any> {
+    return this.sendRequest({ type: "read_file_contents_request", paths } as any);
+  }
+  showEditDiff(filePath: string, edits: Array<{ oldString: string; newString: string; replaceAll?: boolean }>): Promise<any> {
+    return this.sendRequest({ type: "show_edit_diff", filePath, edits } as any);
+  }
   getCurrentSelection(): Promise<any> {
     return this.sendRequest({ type: "get_current_selection" });
   }
@@ -266,7 +283,7 @@ export abstract class BaseTransport {
             if (stream) {
               if (message.error) stream.error(new Error(message.error));
               stream.done();
-              // 延迟删除，给尾部 io_message/result 留出时间片
+ // ， io_message/result
               setTimeout(() => {
                 this.streams.delete(message.channelId);
               }, 50);

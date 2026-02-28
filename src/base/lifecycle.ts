@@ -16,7 +16,6 @@ import { BugIndicatingError, onUnexpectedError } from './errors';
 
 /**
  * Enables logging of potentially leaked disposables.
- *
  * A disposable is considered leaked if it is not disposed or not registered as the child of
  * another disposable. This tracking is very simple an only works for classes that either
  * extend Disposable or use a DisposableStore. This means there are a lot of false positives.
@@ -303,9 +302,7 @@ export function markAsSingleton<T extends IDisposable>(singleton: T): T {
 
 /**
  * An object that performs a cleanup operation when `.dispose()` is called.
- *
  * Some examples of how disposables are used:
- *
  * - An event listener that removes itself when `.dispose()` is called.
  * - A resource such as a file system watcher that cleans up the resource when `.dispose()` is called.
  * - The return value from registering a provider. When `.dispose()` is called, the provider is unregistered.
@@ -400,7 +397,6 @@ class FunctionDisposable implements IDisposable {
 
 /**
  * Turn a function that implements dispose into an {@link IDisposable}.
- *
  * @param fn Clean up function, guaranteed to be called only **once**.
  */
 export function toDisposable(fn: () => void): IDisposable {
@@ -409,7 +405,6 @@ export function toDisposable(fn: () => void): IDisposable {
 
 /**
  * Manages a collection of disposable values.
- *
  * This is the preferred way to manage multiple disposables. A `DisposableStore` is safer to work with than an
  * `IDisposable[]` as it considers edge cases, such as registering the same value multiple times or adding an item to a
  * store that has already been disposed of.
@@ -427,7 +422,6 @@ export class DisposableStore implements IDisposable {
 
 	/**
 	 * Dispose of all registered disposables and mark this object as disposed.
-	 *
 	 * Any future disposables added to this object will be disposed of on `add`.
 	 */
 	public dispose(): void {
@@ -522,14 +516,12 @@ export class DisposableStore implements IDisposable {
 
 /**
  * Abstract base class for a {@link IDisposable disposable} object.
- *
  * Subclasses can {@linkcode _register} disposables that will be automatically cleaned up when this object is disposed of.
  */
 export abstract class Disposable implements IDisposable {
 
 	/**
 	 * A disposable that does nothing when it is disposed of.
-	 *
 	 * TODO: This should not be a static property.
 	 */
 	static readonly None = Object.freeze<IDisposable>({ dispose() { } });
@@ -560,7 +552,6 @@ export abstract class Disposable implements IDisposable {
 
 /**
  * Manages the lifecycle of a disposable value that may be changed.
- *
  * This ensures that when the disposable value is changed, the previously held disposable is disposed of. You can
  * also register a `MutableDisposable` on a `Disposable` to ensure it is automatically cleaned up.
  */
@@ -581,12 +572,10 @@ export class MutableDisposable<T extends IDisposable> implements IDisposable {
 
 	/**
 	 * Set a new disposable value.
-	 *
 	 * Behaviour:
 	 * - If the MutableDisposable has been disposed, the setter is a no-op.
 	 * - If the new value is strictly equal to the current value, the setter is a no-op.
 	 * - Otherwise the previous value (if any) is disposed and the new value is stored.
-	 *
 	 * Related helpers:
 	 * - clear() resets the value to `undefined` (and disposes the previous value).
 	 * - clearAndLeak() returns the old value without disposing it and removes its parent.
@@ -767,7 +756,6 @@ export class DisposableMap<K, V extends IDisposable = IDisposable> implements ID
 
 	/**
 	 * Disposes of all stored values and mark this object as disposed.
-	 *
 	 * Trying to use this object after it has been disposed of is an error.
 	 */
 	dispose(): void {

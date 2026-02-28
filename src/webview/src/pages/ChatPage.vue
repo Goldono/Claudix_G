@@ -1,23 +1,34 @@
 <template>
   <div class="chat-page">
-    <!-- 顶部标题栏 -->
+    <!-- Session Tabs -->
+    <SessionTabBar
+      :sessions="allSessions"
+      :hidden-sessions="hiddenSessionsList"
+      :active-session="activeSessionRawValue"
+      @select="handleTabSelect"
+      @close="handleTabClose"
+      @restore="handleRestoreSession"
+    />
+
     <div class="chat-header">
       <div class="header-left">
-        <button class="menu-btn" @click="$emit('switchToSessions')">
-          <span class="codicon codicon-menu"></span>
-        </button>
         <h2 class="chat-title">{{ title }}</h2>
       </div>
       <div class="header-right">
-        <button class="new-chat-btn" title="新开对话" @click="createNew">
+        <button class="new-chat-btn" title="New conversation" @click="createNew">
           <span class="codicon codicon-plus"></span>
         </button>
       </div>
     </div>
 
-    <!-- 主体：消息容器 -->
+    <!-- ： -->
     <div class="main">
       <!-- <div class="chatContainer"> -->
+        <FileEditedList
+          :files-edited="editedFiles"
+          :cwd="session?.cwd.value ?? ''"
+          :on-open-file="(p) => toolContext.fileOpener.open(p)"
+        />
         <div
           ref="containerEl"
           :class="['messagesContainer', 'custom-scroll-container', { dimmed: permissionRequestsLen > 0 }]"
@@ -62,16 +73,20 @@
           <ChatInputBox
             :show-progress="true"
             :progress-percentage="progressPercentage"
+            :usage-data="session?.usageData.value"
             :conversation-working="isBusy"
             :attachments="attachments"
             :thinking-level="session?.thinkingLevel.value"
             :permission-mode="session?.permissionMode.value"
             :selected-model="session?.modelSelection.value"
+            :full-text-mode="fullTextMode"
             @submit="handleSubmit"
             @stop="handleStop"
             @add-attachment="handleAddAttachment"
+            @add-file-ref="handleAddFileRef"
             @remove-attachment="handleRemoveAttachment"
             @thinking-toggle="handleToggleThinking"
+            @full-text-toggle="fullTextMode = !fullTextMode"
             @mode-select="handleModeSelect"
             @model-select="handleModelSelect"
           />
@@ -85,17 +100,21 @@
   import { ref, computed, inject, onMounted, onUnmounted, nextTick, watch } from 'vue';
   import { RuntimeKey } from '../composables/runtimeContext';
   import { useSession } from '../composables/useSession';
+  import { useSessionStore } from '../composables/useSessionStore';
   import type { Session } from '../core/Session';
   import type { PermissionRequest } from '../core/PermissionRequest';
   import type { ToolContext } from '../types/tool';
   import type { AttachmentItem } from '../types/attachment';
   import { convertFileToAttachment } from '../types/attachment';
+  import SessionTabBar from '../components/SessionTabBar.vue';
   import ChatInputBox from '../components/ChatInputBox.vue';
   import PermissionRequestModal from '../components/PermissionRequestModal.vue';
   import Spinner from '../components/Messages/WaitingIndicator.vue';
   import ClaudeWordmark from '../components/ClaudeWordmark.vue';
   import RandomTip from '../components/RandomTip.vue';
   import MessageRenderer from '../components/Messages/MessageRenderer.vue';
+  import FileEditedList from '../components/FileEditedList.vue';
+  import type { FileEdit } from '../types/toolbar';
   import { useKeybinding } from '../utils/useKeybinding';
   import { useSignal } from '@gn8/alien-signals-vue';
   import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk';
@@ -115,23 +134,144 @@
           editable
         );
       },
+      openDiff: async (filePath: string, edits: Array<{ oldString: string; newString: string; replaceAll?: boolean }>) => {
+        const connection = await runtime.sessionStore.getConnection();
+        await connection.showEditDiff(filePath, edits);
+      },
+    },
+    revertFileEdit: async (action, filePath, editType, options) => {
+      const connection = await runtime.sessionStore.getConnection();
+      return connection.revertFileEdit(action, filePath, editType, options);
+    },
+    restoreCheckpoint: async (messageId: string) => {
+      const allMsgs = messages.value;
+      const msgIndex = allMsgs.findIndex((m: any) => m.id === messageId);
+      if (msgIndex < 0) return;
+
+      // Collect all Edit/Write tool_use blocks from messages AFTER this one
+      const editsToRevert: Array<{ filePath: string; editType: 'edit' | 'write'; oldString?: string; newString?: string; fileContents?: string }> = [];
+
+      for (let i = msgIndex + 1; i < allMsgs.length; i++) {
+        const msg = allMsgs[i];
+        const content = msg?.message?.content;
+        if (!Array.isArray(content)) continue;
+
+        for (const wrapper of content) {
+          const block = wrapper?.content || wrapper;
+          if (block?.type !== 'tool_use') continue;
+          const name = block.name;
+          const input = block.input;
+          if (!input?.file_path) continue;
+
+          if (name === 'Edit' || name === 'MultiEdit') {
+            editsToRevert.push({
+              filePath: input.file_path,
+              editType: 'edit',
+              oldString: input.old_string,
+              newString: input.new_string,
+            });
+          } else if (name === 'Write') {
+            editsToRevert.push({
+              filePath: input.file_path,
+              editType: 'write',
+              fileContents: input.content,
+            });
+          }
+        }
+      }
+
+      if (editsToRevert.length === 0) {
+        await runtime.appContext.showNotification?.('Keine Dateiänderungen nach dieser Nachricht gefunden.', 'info');
+        return;
+      }
+
+      // Revert in reverse order (most recent first)
+      const connection = await runtime.sessionStore.getConnection();
+      let reverted = 0;
+      let failed = 0;
+
+      for (let i = editsToRevert.length - 1; i >= 0; i--) {
+        const edit = editsToRevert[i];
+        try {
+          const result = await connection.revertFileEdit('revert', edit.filePath, edit.editType, {
+            oldString: edit.oldString,
+            newString: edit.newString,
+            fileContents: edit.fileContents,
+            previousContents: null,
+          });
+          if (result.success) reverted++;
+          else failed++;
+        } catch {
+          failed++;
+        }
+      }
+
+      const msg = failed > 0
+        ? `${reverted} Änderungen rückgängig gemacht, ${failed} fehlgeschlagen (Dateien wurden zwischenzeitlich geändert).`
+        : `${reverted} Änderungen rückgängig gemacht.`;
+      await runtime.appContext.showNotification?.(msg, failed > 0 ? 'warning' : 'info');
+    },
+    showNotification: async (message, severity) => {
+      return runtime.appContext.showNotification?.(message, severity);
     },
   }));
 
-  // 订阅 activeSession（alien-signal → Vue ref）
+ // useSessionStore（bewährtes Pattern aus der alten Sessions-Seite）
+  const store = useSessionStore(runtime.sessionStore);
+
+  // Sessions-Liste für die Tab-Leiste (nur sichtbare)
+  const allSessions = computed(() => {
+    const sessions = useSignal(runtime.sessionStore.visibleSessions).value || [];
+    return sessions.filter(Boolean) as Session[];
+  });
+
+  const hiddenSessionsList = computed(() => {
+    const sessions = useSignal(runtime.sessionStore.hiddenSessions).value || [];
+    return sessions.filter(Boolean) as Session[];
+  });
+
+ // activeSession（alien-signal → Vue ref）
   const activeSessionRaw = useSignal<Session | undefined>(
     runtime.sessionStore.activeSession
   );
+  const activeSessionRawValue = computed(() => activeSessionRaw.value);
 
-  // 使用 useSession 将 alien-signals 转换为 Vue Refs
+ // useSession alien-signals Vue Refs
   const session = computed(() => {
     const raw = activeSessionRaw.value;
     return raw ? useSession(raw) : null;
   });
 
-  // 现在所有访问都使用 Vue Ref（.value）
+ // Vue Ref（.value）
   const title = computed(() => session.value?.summary.value || 'New Conversation');
   const messages = computed<any[]>(() => session.value?.messages.value ?? []);
+
+  const editedFiles = computed<FileEdit[]>(() => {
+    const allMsgs = messages.value;
+    const seen = new Set<string>();
+    const result: FileEdit[] = [];
+    for (const msg of allMsgs) {
+      const content = msg?.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const wrapper of content) {
+        const block = wrapper?.content || wrapper;
+        if (block?.type !== 'tool_use') continue;
+        const { name, input } = block;
+        if (!input?.file_path) continue;
+        if (!['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(name)) continue;
+        if (!seen.has(input.file_path)) {
+          seen.add(input.file_path);
+          const normalized = input.file_path.replace(/\\/g, '/');
+          result.push({
+            name: normalized.split('/').pop() || input.file_path,
+            filePath: input.file_path,
+          });
+        }
+      }
+    }
+    return result;
+  });
+
   const isBusy = computed(() => session.value?.busy.value ?? false);
   const permissionMode = computed(
     () => session.value?.permissionMode.value ?? 'default'
@@ -143,9 +283,9 @@
   const pendingPermission = computed(() => permissionRequests.value[0] as any);
   const platform = computed(() => runtime.appContext.platform);
 
-  // 注册命令：permissionMode.toggle（在下方定义函数后再注册）
+ // ：permissionMode.toggle（）
 
-  // 估算 Token 使用占比（基于 usageData）
+ // Token （ usageData）
   const progressPercentage = computed(() => {
     const s = session.value;
     if (!s) return 0;
@@ -165,10 +305,9 @@
   const containerEl = ref<HTMLDivElement | null>(null);
   const endEl = ref<HTMLDivElement | null>(null);
 
-  // 附件状态管理
   const attachments = ref<AttachmentItem[]>([]);
+  const fullTextMode = ref(false);
 
-  // 记录上次消息数量，用于判断是否需要滚动
   let prevCount = 0;
 
   function stringify(m: any): string {
@@ -190,7 +329,6 @@
   }
 
   watch(session, async () => {
-    // 切换会话：复位并滚动底部
     prevCount = 0;
     await nextTick();
     scrollToBottom();
@@ -211,7 +349,6 @@
   );
 
   watch(permissionRequestsLen, async () => {
-    // 有权限请求出现时也确保滚动到底部
     await nextTick();
     scrollToBottom();
   });
@@ -229,33 +366,76 @@
   async function createNew(): Promise<void> {
     if (!runtime) return;
 
-    // 1. 先尝试通过 appContext.startNewConversationTab 创建新标签（多标签模式）
+ // 1. appContext.startNewConversationTab （）
     if (runtime.appContext.startNewConversationTab()) {
       return;
     }
 
-    // 2. 如果不是多标签模式，检查当前会话是否为空
+ // 2. ，
     const currentMessages = messages.value;
     if (currentMessages.length === 0) {
-      // 当前已经是空会话，无需创建新会话
       return;
     }
 
-    // 3. 当前会话有内容，创建新会话
+ // 3. ，
     await runtime.sessionStore.createSession({ isExplicit: true });
   }
 
-  // ChatInput 事件处理
+  // Session Tab Handlers
+  function handleTabSelect(targetSession: Session) {
+    runtime.sessionStore.setActiveSession(targetSession);
+  }
+
+  function handleTabClose(targetSession: Session) {
+    const sessionId = targetSession.sessionId();
+    if (sessionId) {
+      runtime.sessionStore.hideSession(sessionId);
+    }
+    if (runtime.sessionStore.activeSession() === targetSession) {
+      const visible = runtime.sessionStore.visibleSessions();
+      runtime.sessionStore.setActiveSession(visible[0] ?? undefined);
+    }
+  }
+
+  function handleRestoreSession(targetSession: Session) {
+    const sessionId = targetSession.sessionId();
+    if (sessionId) {
+      runtime.sessionStore.unhideSession(sessionId);
+      runtime.sessionStore.setActiveSession(targetSession);
+    }
+  }
+
+ // ChatInput
   async function handleSubmit(content: string) {
     const s = session.value;
-    const trimmed = (content || '').trim();
+    let trimmed = (content || '').trim();
     if (!s || (!trimmed && attachments.value.length === 0) || isBusy.value) return;
 
-    try {
-      // 传递附件给 send 方法
-      await s.send(trimmed || ' ', attachments.value);
+    // Separate file-reference pills from binary attachments
+    const fileRefs = attachments.value.filter(a => a.isFileRef);
+    const binaryAttachments = attachments.value.filter(a => !a.isFileRef);
 
-      // 发送成功后清空附件
+    // Fulltext mode: read file contents and convert refs to text/plain attachments
+    if (fullTextMode.value && fileRefs.length > 0) {
+      try {
+        const connection = await runtime.sessionStore.getConnection();
+        const paths = fileRefs.map(f => f.filePath!).filter(Boolean);
+        const result = await connection.readFileContents(paths);
+        if (result?.files) {
+          for (const file of result.files) {
+            if (file.error || !file.content) continue;
+            const encoded = typeof globalThis.btoa === 'function' ? globalThis.btoa(unescape(encodeURIComponent(file.content))) : '';
+            binaryAttachments.push({ id: `fulltext-${Date.now()}-${Math.random().toString(36).slice(2)}`, fileName: file.fileName, mediaType: 'text/plain', data: encoded, fileSize: file.content.length });
+          }
+        }
+      } catch (e) { console.error('[ChatPage] fulltext read failed', e); }
+    } else if (fileRefs.length > 0) {
+      const paths = fileRefs.map(f => `@${f.filePath}`).join(' ');
+      trimmed = trimmed ? `${paths} ${trimmed}` : paths;
+    }
+
+    try {
+      await s.send(trimmed || ' ', binaryAttachments);
       attachments.value = [];
     } catch (e) {
       console.error('[ChatPage] send failed', e);
@@ -279,7 +459,7 @@
     await s.setPermissionMode(mode);
   }
 
-  // permissionMode.toggle：按固定顺序轮转
+ // permissionMode.toggle：
   const togglePermissionMode = () => {
     const s = session.value;
     if (!s) return;
@@ -290,7 +470,7 @@
     void s.setPermissionMode(next);
   };
 
-  // 现在注册命令（toggle 已定义）
+ // （toggle ）
   const unregisterToggle = runtime.appContext.commandRegistry.registerAction(
     {
       id: 'permissionMode.toggle',
@@ -303,7 +483,7 @@
     }
   );
 
-  // 注册快捷键：shift+tab → permissionMode.toggle（允许在输入区生效）
+ // ：shift+tab → permissionMode.toggle（）
   useKeybinding({
     keys: 'shift+tab',
     handler: togglePermissionMode,
@@ -321,7 +501,7 @@
   function handleStop() {
     const s = session.value;
     if (s) {
-      // 方法已经在 useSession 中绑定，可以直接调用
+ // useSession ，
       void s.interrupt();
     }
   }
@@ -330,18 +510,35 @@
     if (!files || files.length === 0) return;
 
     try {
-      // 将所有文件转换为 AttachmentItem
+ // AttachmentItem
       const conversions = await Promise.all(
         Array.from(files).map(convertFileToAttachment)
       );
 
-      // 添加到附件列表
       attachments.value = [...attachments.value, ...conversions];
 
       console.log('[ChatPage] Added attachments:', conversions.map(a => a.fileName));
     } catch (e) {
       console.error('[ChatPage] Failed to convert files:', e);
     }
+  }
+
+  function handleAddFileRef(paths: string[]) {
+    const newRefs = paths
+      .filter(p => p && p.trim())
+      .map(p => {
+        const fileName = p.replace(/\\/g, '/').split('/').pop() || p;
+        return {
+          id: `fileref-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          fileName,
+          filePath: p,
+          isFileRef: true,
+          mediaType: 'application/vnd.file-reference',
+          data: '',
+          fileSize: 0,
+        };
+      });
+    attachments.value = [...attachments.value, ...newRefs];
   }
 
   function handleRemoveAttachment(id: string) {
@@ -381,33 +578,8 @@
   .header-left {
     display: flex;
     align-items: center;
-    gap: 8px;
     overflow: hidden;
     flex: 1;
-  }
-
-  .menu-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border: none;
-    background: transparent;
-    color: var(--vscode-titleBar-activeForeground);
-    border-radius: 3px;
-    cursor: pointer;
-    transition: background-color 0.2s;
-    opacity: 0.7;
-  }
-
-  .menu-btn .codicon {
-    font-size: 12px;
-  }
-
-  .menu-btn:hover {
-    background: var(--vscode-toolbar-hoverBackground);
-    opacity: 1;
   }
 
   .chat-title {
@@ -457,7 +629,7 @@
     overflow: hidden;
   }
 
-  /* Chat 容器与消息滚动容器（对齐 React） */
+ /* Chat （ React） */
   .chatContainer {
     position: relative;
     height: 100%;
@@ -511,14 +683,14 @@
     color: var(--vscode-editor-foreground);
   }
 
-  /* 其他样式复用 */
+ /* */
 
-  /* 输入区域容器 */
+ /* */
   .inputContainer {
     padding: 8px 12px 12px;
   }
 
-  /* 底部对话框区域钉在底部 */
+ /* */
   .main > :last-child {
     flex-shrink: 0;
     background-color: var(--vscode-sideBar-background);
@@ -528,7 +700,7 @@
     align-self: center;
   }
 
-  /* 空状态样式 */
+ /* */
   .emptyState {
     display: flex;
     flex-direction: column;

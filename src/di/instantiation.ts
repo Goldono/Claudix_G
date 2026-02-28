@@ -70,7 +70,6 @@ export interface IInstantiationService {
 	/**
 	 * Creates a child of this service which inherits all current services
 	 * and adds/overwrites the given services.
-	 *
 	 * NOTE that the returned child is `disposable` and should be disposed when not used
 	 * anymore. This will also dispose all the services that this service has created.
 	 */
@@ -78,7 +77,6 @@ export interface IInstantiationService {
 
 	/**
 	 * Disposes this instantiation service.
-	 *
 	 * - Will dispose all services that this instantiation service has created.
 	 * - Will dispose all its children but not its parent.
 	 * - Will NOT dispose services-instances that this service has been created with

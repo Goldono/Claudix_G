@@ -8,18 +8,18 @@
       <code v-if="pattern" class="pattern-text">{{ pattern }}</code>
     </template>
 
-    <!-- 展开内容：显示详细信息 -->
+    <!-- ： -->
     <template #expandable>
-      <!-- 搜索路径 -->
+      <!-- Search -->
       <div v-if="globPath" class="detail-item">
-        <span class="detail-label">搜索路径:</span>
+ <span class="detail-label">Search:</span>
         <span class="detail-value">{{ globPath }}</span>
       </div>
 
-      <!-- 搜索结果列表 -->
+      <!-- Search -->
       <div v-if="resultFiles.length > 0" class="detail-item">
         <div class="detail-label">
-          <span>找到 {{ fileCount }} 个文件:</span>
+ <span> {{ fileCount }} :</span>
         </div>
         <div class="file-list">
           <ToolFilePath
@@ -32,7 +32,6 @@
         </div>
       </div>
 
-      <!-- 错误内容 -->
       <ToolError :tool-result="toolResult" />
     </template>
   </ToolMessageWrapper>
@@ -67,12 +66,10 @@ const resultFiles = computed(() => {
 
   const content = props.toolResult.content;
 
-  // 如果是数组，直接返回
   if (Array.isArray(content)) {
     return content;
   }
 
-  // 如果是字符串，按行分割
   if (typeof content === 'string') {
     return content.split('\n').filter(line => line.trim());
   }

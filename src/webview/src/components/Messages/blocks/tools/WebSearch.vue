@@ -9,13 +9,12 @@
       <span v-if="query" class="query-text">{{ query }}</span>
     </template>
 
-    <!-- 展开内容：显示域名过滤选项 -->
+    <!-- ： -->
     <template v-if="hasExpandableContent" #expandable>
-      <!-- 允许的域名 -->
       <div v-if="allowedDomains && allowedDomains.length" class="detail-item">
         <div class="detail-label">
           <span class="codicon codicon-verified"></span>
-          <span>允许域名:</span>
+ <span>:</span>
         </div>
         <div class="domain-list">
           <span v-for="domain in allowedDomains" :key="domain" class="domain-tag allowed">
@@ -24,11 +23,10 @@
         </div>
       </div>
 
-      <!-- 屏蔽的域名 -->
       <div v-if="blockedDomains && blockedDomains.length" class="detail-item">
         <div class="detail-label">
           <span class="codicon codicon-error"></span>
-          <span>屏蔽域名:</span>
+ <span>:</span>
         </div>
         <div class="domain-list">
           <span v-for="domain in blockedDomains" :key="domain" class="domain-tag blocked">
@@ -37,7 +35,6 @@
         </div>
       </div>
 
-      <!-- 错误内容 -->
       <ToolError :tool-result="toolResult" />
     </template>
   </ToolMessageWrapper>
@@ -68,31 +65,25 @@ const blockedDomains = computed(() => {
   return props.toolUse?.input?.blocked_domains;
 });
 
-// 只有在有域名过滤信息或有错误时才有可展开内容
 const hasExpandableContent = computed(() => {
-  // 有错误时可展开
   if (props.toolResult?.is_error) return true;
 
-  // 有域名过滤信息时可展开
   const hasFilters = (allowedDomains.value && allowedDomains.value.length > 0) ||
                      (blockedDomains.value && blockedDomains.value.length > 0);
 
   return hasFilters;
 });
 
-// 判断是否为权限请求阶段
 const isPermissionRequest = computed(() => {
-  // 如果有 toolUseResult,说明已经执行完成(会话加载)
+ // toolUseResult,()
   const hasToolUseResult = !!props.toolUseResult;
 
-  // 如果有 toolResult 且不是错误,说明已经执行完成(实时对话)
+ // toolResult ,()
   const hasToolResult = !!props.toolResult && !props.toolResult.is_error;
 
-  // 如果都没有,说明是权限请求阶段
   return !hasToolUseResult && !hasToolResult;
 });
 
-// 只在权限请求阶段且有域名过滤信息时默认展开,执行完成后不展开
 const shouldExpand = computed(() => {
   return hasExpandableContent.value && isPermissionRequest.value;
 });

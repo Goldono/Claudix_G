@@ -82,7 +82,6 @@ export function diffMaps<K, V>(before: Map<K, V>, after: Map<K, V>): { removed: 
 
 /**
  * Computes the intersection of two sets.
- *
  * @param setA - The first set.
  * @param setB - The second iterable.
  * @returns A new set containing the elements that are in both `setA` and `setB`.

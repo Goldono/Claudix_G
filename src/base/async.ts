@@ -67,7 +67,6 @@ export abstract class AbstractIdleValue<T> {
 
 /**
  * An `IdleValue` that always uses the current window (which might be throttled or inactive)
- *
  * **Note** that there is `dom.ts#WindowIdleValue` which is better suited when running inside a browser
  * context
  */

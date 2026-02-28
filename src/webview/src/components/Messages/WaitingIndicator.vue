@@ -49,7 +49,6 @@
   let verbTimer: any;
   let rafId: number | null = null;
 
-  // 文本动画状态
   const animatedText = ref(' '.repeat(MAX_VERB_LENGTH + 3));
   const animIndex = ref(0);
   const animTarget = ref(
@@ -63,7 +62,7 @@
       iconIndex.value = (iconIndex.value + 1) % ANIMATION_ICONS.length;
     }, 120);
 
-    // 依次 2s/3s/5s，之后固定 5s 变更
+ // 2s/3s/5s， 5s
     const intervals = [2000, 3000, 5000];
     let count = 0;
     const schedule = () => {
@@ -73,7 +72,6 @@
     };
     verbTimer = setTimeout(schedule, intervals[0]);
 
-    // 初次触发文本动画
     startTextAnimation(verb.value + '...');
   });
 
@@ -87,7 +85,6 @@
     return VERBS[Math.floor(Math.random() * VERBS.length)];
   }
 
-  // 监听动词变化，重启文本动画
   watch(verb, v => {
     startTextAnimation(v + '...');
   });
@@ -144,7 +141,7 @@
       lastTick = ts;
 
       const d = animIndex.value;
-      // 完成条件：扫描位置超过 target 长度 + 3 个阶段
+ // ： target + 3
       if (d - 3 >= animTarget.value.length) {
         rafId = null;
         return;

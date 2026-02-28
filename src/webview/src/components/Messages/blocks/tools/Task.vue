@@ -11,7 +11,7 @@
     </template>
 
     <template #expandable>
-      <!-- Prompt内容 -->
+      <!-- Prompt -->
       <div v-if="prompt" class="prompt-section">
         <div class="section-header">
           <span class="codicon codicon-comment-discussion"></span>
@@ -20,7 +20,6 @@
         <pre class="prompt-content">{{ prompt }}</pre>
       </div>
 
-      <!-- 错误内容 -->
       <ToolError :tool-result="toolResult" />
     </template>
   </ToolMessageWrapper>
@@ -39,34 +38,28 @@ interface Props {
 
 const props = defineProps<Props>();
 
-// 子代理类型
 const subagentType = computed(() => {
   return props.toolUse?.input?.subagent_type || props.toolUseResult?.subagent_type;
 });
 
-// 任务描述
 const description = computed(() => {
   return props.toolUse?.input?.description || props.toolUseResult?.description;
 });
 
-// Prompt内容
+// Prompt
 const prompt = computed(() => {
   return props.toolUse?.input?.prompt || props.toolUseResult?.prompt;
 });
 
-// 判断是否为权限请求阶段
 const isPermissionRequest = computed(() => {
   const hasToolUseResult = !!props.toolUseResult;
   const hasToolResult = !!props.toolResult && !props.toolResult.is_error;
   return !hasToolUseResult && !hasToolResult;
 });
 
-// 权限请求阶段默认展开,执行完成后不展开
 const shouldExpand = computed(() => {
-  // 权限请求阶段展开
   if (isPermissionRequest.value) return true;
 
-  // 有错误时展开
   if (props.toolResult?.is_error) return true;
 
   return false;

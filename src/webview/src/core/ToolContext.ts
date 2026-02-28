@@ -1,7 +1,6 @@
 /**
- * ToolContext - Tool 执行上下文
- *
- * 管理 Tool 的执行状态和结果
+ * ToolContext - Tool execution context
+ * Manages Tool execution state and results
  */
 
 import { signal } from 'alien-signals';
@@ -9,7 +8,7 @@ import { signal } from 'alien-signals';
 type Signal<T> = ReturnType<typeof signal<T>>;
 
 /**
- * Tool 结果类型
+ * Tool result type
  */
 export interface ToolResult {
   success: boolean;
@@ -34,22 +33,22 @@ export class ToolContext {
   }
 
   /**
-   * 获取 Tool 结果的 Signal
+   * Get Tool result Signal
    */
   get toolResult(): Signal<ToolResult | undefined> {
     return this.toolResultSignal;
   }
 
   /**
-   * 设置 Tool 结果
-   * @param result Tool 执行结果
+   * Set Tool result
+   * @param result Tool execution result
    */
   setToolResult(result: ToolResult): void {
     this.toolResultSignal(result);
   }
 
   /**
-   * 检查 Tool 是否执行成功
+   * Check if Tool executed successfully
    */
   isSuccess(): boolean {
     const result = this.toolResultSignal();
@@ -57,7 +56,7 @@ export class ToolContext {
   }
 
   /**
-   * 检查 Tool 是否执行失败
+   * Check if Tool execution failed
    */
   isError(): boolean {
     const result = this.toolResultSignal();
@@ -65,7 +64,7 @@ export class ToolContext {
   }
 
   /**
-   * 获取错误消息
+   * Get error message
    */
   getErrorMessage(): string | undefined {
     const result = this.toolResultSignal();
@@ -73,7 +72,7 @@ export class ToolContext {
   }
 
   /**
-   * 获取输出内容
+   * Get output content
    */
   getOutput(): string | undefined {
     const result = this.toolResultSignal();

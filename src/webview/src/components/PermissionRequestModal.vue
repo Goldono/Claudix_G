@@ -10,7 +10,7 @@
         Do you want to proceed with <strong>{{ request.toolName }}</strong>?
       </div>
 
-      <!-- 工具特定的权限 UI（预留扩展点） -->
+      <!-- UI（） -->
       <!-- <ToolPermissionView
         v-if="toolPermissionComponent"
         :toolName="request.toolName"
@@ -19,7 +19,7 @@
         @modify="handleModifyInputs"
       /> -->
 
-      <!-- 通用 Details 作为兜底 -->
+      <!-- Details -->
       <div v-if="hasInputs" class="permission-request-description">
         <details>
           <summary>
@@ -102,7 +102,7 @@ const handleModifyInputs = (newInputs: any) => {
 
 const handleApprove = () => {
   if (modifiedInputs.value) {
-    // 覆盖 inputs 为修改后的值
+ // inputs
     (props.request as any).inputs = modifiedInputs.value;
   }
   props.onResolve(props.request, true);

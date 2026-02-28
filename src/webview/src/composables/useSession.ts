@@ -1,17 +1,13 @@
 /**
  * useSession - Vue Composable for Session
- *
- * 核心功能：
- * 1. 将 Session 类的 alien-signals 转换为 Vue refs
- * 2. 将 alien computed 转换为 Vue computed
- * 3. 提供 Vue-friendly 的 API
- *
- * 使用方法：
+ * 1. Session alien-signals Vue refs
+ * 2. alien computed Vue computed
+ * 3. Vue-friendly API
  * ```typescript
  * const session = new Session(...);
  * const sessionAPI = useSession(session);
- * // sessionAPI.messages 是 Vue Ref<any[]>
- * // sessionAPI.busy 是 Vue Ref<boolean>
+ * // sessionAPI.messages Vue Ref<any[]>
+ * // sessionAPI.busy Vue Ref<boolean>
  * ```
  */
 
@@ -25,10 +21,9 @@ import type { BaseTransport } from '../transport/BaseTransport';
 import type { ModelOption } from '../../../shared/messages';
 
 /**
- * useSession 返回类型
+ * useSession
  */
 export interface UseSessionReturn {
-  // 基础状态
   connection: Ref<BaseTransport | undefined>;
   busy: Ref<boolean>;
   isLoading: Ref<boolean>;
@@ -37,7 +32,6 @@ export interface UseSessionReturn {
   isExplicit: Ref<boolean>;
   lastModifiedTime: Ref<number>;
 
-  // 核心数据
   messages: Ref<any[]>;
   messageCount: Ref<number>;
   cwd: Ref<string | undefined>;
@@ -49,22 +43,22 @@ export interface UseSessionReturn {
   worktree: Ref<{ name: string; path: string } | undefined>;
   selection: Ref<SelectionRange | undefined>;
 
-  // 使用统计
   usageData: Ref<{
     totalTokens: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheCreationTokens: number;
+    cacheReadTokens: number;
     totalCost: number;
     contextWindow: number;
   }>;
 
-  // 计算属性
   claudeConfig: ComputedRef<any>;
   config: ComputedRef<any>;
   permissionRequests: ComputedRef<PermissionRequest[]>;
 
-  // 派生状态
   isOffline: ComputedRef<boolean>;
 
-  // 方法
   getConnection: () => Promise<BaseTransport>;
   preloadConnection: () => Promise<void>;
   loadFromServer: () => Promise<void>;
@@ -85,18 +79,17 @@ export interface UseSessionReturn {
   onPermissionRequested: (callback: (request: PermissionRequest) => void) => () => void;
   dispose: () => void;
 
-  // 原始实例（用于高级场景）
+ // （）
   __session: Session;
 }
 
 /**
- * useSession - 将 Session 实例包装为 Vue Composable API
- *
- * @param session Session 实例
+ * useSession - Session Vue Composable API
+ * @param session Session
  * @returns Vue-friendly API
  */
 export function useSession(session: Session): UseSessionReturn {
-  //  使用官方 useSignal 桥接 signals/computed
+ // useSignal signals/computed
   const connection = useSignal(session.connection);
   const busy = useSignal(session.busy);
   const isLoading = useSignal(session.isLoading);
@@ -116,15 +109,15 @@ export function useSession(session: Session): UseSessionReturn {
   const selection = useSignal(session.selection);
   const usageData = useSignal(session.usageData);
 
-  //  使用 useSignal 包装 alien computed（读-only 使用，不调用 setter）
+ // useSignal alien computed（-only ， setter）
   const claudeConfig = useSignal(session.claudeConfig as any);
   const config = useSignal(session.config as any);
   const permissionRequests = useSignal(session.permissionRequests) as unknown as ComputedRef<PermissionRequest[]>;
 
-  //  派生状态（临时保留 Vue computed）
+ // （ Vue computed）
   const isOffline = computed(() => session.isOffline());
 
-  //  绑定所有方法（确保 this 指向正确）
+ // （ this ）
   const getConnection = session.getConnection.bind(session);
   const preloadConnection = session.preloadConnection.bind(session);
   const loadFromServer = session.loadFromServer.bind(session);
@@ -142,7 +135,6 @@ export function useSession(session: Session): UseSessionReturn {
   const dispose = session.dispose.bind(session);
 
   return {
-    // 状态
     connection,
     busy,
     isLoading,
@@ -162,13 +154,11 @@ export function useSession(session: Session): UseSessionReturn {
     selection,
     usageData,
 
-    // 计算属性
     claudeConfig,
     config,
     permissionRequests,
     isOffline,
 
-    // 方法
     getConnection,
     preloadConnection,
     loadFromServer,
@@ -185,7 +175,6 @@ export function useSession(session: Session): UseSessionReturn {
     onPermissionRequested,
     dispose,
 
-    // 原始实例
     __session: session,
   };
 }

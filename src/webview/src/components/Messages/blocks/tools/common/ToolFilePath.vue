@@ -19,13 +19,15 @@ interface Props {
   context?: ToolContext;
   startLine?: number;
   endLine?: number;
+  searchText?: string;
+  diffEdits?: Array<{ oldString: string; newString: string; replaceAll?: boolean }>;
 }
 
 const props = defineProps<Props>();
 
 const fileName = computed(() => {
   if (!props.filePath) return '';
-  // 简单的路径解析（跨平台）
+ // （）
   return props.filePath.split('/').pop() || props.filePath.split('\\').pop() || props.filePath;
 });
 
@@ -42,10 +44,15 @@ function handleClick(event: MouseEvent) {
     return;
   }
 
-  // 打开文件并跳转到指定行
+  if (props.diffEdits && props.diffEdits.length > 0 && props.context.fileOpener.openDiff) {
+    props.context.fileOpener.openDiff(props.filePath, props.diffEdits);
+    return;
+  }
+
   props.context.fileOpener.open(props.filePath, {
     startLine: props.startLine,
     endLine: props.endLine,
+    searchText: props.searchText,
   });
 }
 </script>

@@ -1,5 +1,4 @@
 /**
- * 基础工具类导出
  * Base utilities export
  */
 

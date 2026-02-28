@@ -1,90 +1,165 @@
 <template>
-  <div v-if="visible && filesEdited.length > 0" class="file-edited-section">
-    <!-- Files Edited 头部 -->
-    <div
-      style="display: flex; justify-content: space-between; align-items: center; height: 24px; cursor: pointer;"
-      @click="toggleExpanded"
-    >
-      <div style="display: flex; align-items: center; gap: 4px; flex-grow: 1; padding-left: 4px;">
+  <div v-if="filesEdited.length > 0" class="file-edited-section">
+    <!-- Header -->
+    <div class="file-edited-header" @click="toggleExpanded">
+      <div class="header-left">
         <span
           class="codicon"
           :class="expanded ? 'codicon-chevron-down' : 'codicon-chevron-right'"
           style="color: var(--vscode-foreground); opacity: 0.6; font-size: 12px;"
         />
-        <div style="font-size: 12px; color: var(--vscode-input-placeholderForeground); opacity: 0.8;">
-          <span>{{ filesEdited.length }} Files Edited</span>
-          <span style="margin-left: 8px;">
-            <span style="color: var(--vscode-gitDecoration-addedResourceForeground);">+{{ totalAdditions }}</span>
-            <span style="color: var(--vscode-gitDecoration-deletedResourceForeground); margin-left: 6px;">-{{ totalDeletions }}</span>
-          </span>
-        </div>
+        <span class="header-label">{{ filesEdited.length }} {{ filesEdited.length === 1 ? 'File' : 'Files' }} Edited</span>
       </div>
+      <button
+        class="copy-btn"
+        title="Dateipfade kopieren (@Pfad-Format)"
+        @click.stop="copyPaths"
+      >
+        <span v-if="copied" class="codicon codicon-check" style="color: var(--vscode-gitDecoration-addedResourceForeground);" />
+        <span v-else class="codicon codicon-copy" />
+      </button>
     </div>
 
-    <!-- Files列表 (当展开时) -->
-    <div
-      v-if="expanded"
-      style="padding: 4px 0;"
-    >
+    <!-- File List -->
+    <div v-if="expanded" class="file-list">
       <div
         v-for="(file, index) in filesEdited"
         :key="index"
         class="file-item"
+        :title="file.filePath"
+        @click="openFile(file.filePath)"
       >
-        <span style="color: var(--vscode-foreground);">{{ file.name }}</span>
-        <span style="display: flex; gap: 6px;">
-          <span style="color: var(--vscode-gitDecoration-addedResourceForeground);">+{{ file.additions || 0 }}</span>
-          <span style="color: var(--vscode-gitDecoration-deletedResourceForeground);">-{{ file.deletions || 0 }}</span>
-        </span>
+        <span class="codicon codicon-file" style="font-size: 11px; opacity: 0.6; flex-shrink: 0;" />
+        <span class="file-name">{{ file.name }}</span>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import type { FileEdit } from '../types/toolbar'
 
 interface Props {
   filesEdited?: FileEdit[]
-  visible?: boolean
-  initialExpanded?: boolean
+  cwd?: string
+  onOpenFile?: (filePath: string) => void
 }
 
 const props = withDefaults(defineProps<Props>(), {
   filesEdited: () => [],
-  visible: false,
-  initialExpanded: false
+  cwd: '',
+  onOpenFile: undefined,
 })
 
-const expanded = ref(props.initialExpanded)
-
-const totalAdditions = computed(() => {
-  return props.filesEdited.reduce((sum, file) => sum + (file.additions || 0), 0)
-})
-
-const totalDeletions = computed(() => {
-  return props.filesEdited.reduce((sum, file) => sum + (file.deletions || 0), 0)
-})
+const expanded = ref(false)
+const copied = ref(false)
 
 function toggleExpanded() {
   expanded.value = !expanded.value
 }
+
+function toRelativePath(absPath: string): string {
+  const norm = absPath.replace(/\\/g, '/')
+  const base = props.cwd.replace(/\\/g, '/').replace(/\/?$/, '/')
+  return norm.startsWith(base) ? norm.slice(base.length) : norm
+}
+
+function copyPaths() {
+  const text = props.filesEdited
+    .map(f => `@${toRelativePath(f.filePath)}`)
+    .join(' ')
+  navigator.clipboard.writeText(text).then(() => {
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 2000)
+  })
+}
+
+function openFile(filePath: string) {
+  props.onOpenFile?.(filePath)
+}
 </script>
 
 <style scoped>
-.file-item {
+.file-edited-section {
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background);
+  flex-shrink: 0;
+}
+
+.file-edited-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 8px;
-  font-size: 12px;
-  border-radius: 4px;
-  transition: background-color 0.1s ease;
+  height: 24px;
+  padding: 0 8px 0 4px;
   cursor: pointer;
+  user-select: none;
+}
+
+.file-edited-header:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.header-label {
+  font-size: 12px;
+  color: var(--vscode-input-placeholderForeground);
+  opacity: 0.8;
+}
+
+.copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--vscode-foreground);
+  opacity: 0.6;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.copy-btn:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+  opacity: 1;
+}
+
+.file-list {
+  padding: 2px 0 4px;
+}
+
+.file-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px 2px 20px;
+  font-size: 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
 }
 
 .file-item:hover {
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: var(--vscode-toolbar-hoverBackground);
+}
+
+.file-name {
+  color: var(--vscode-foreground);
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

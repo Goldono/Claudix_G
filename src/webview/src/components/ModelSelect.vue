@@ -17,24 +17,46 @@
     <template #content="{ close }">
       <DropdownItem
         :item="{
-          id: 'claude-opus-4-5',
-          label: 'Opus 4.5',
-          checked: selectedModel === 'claude-opus-4-5',
+          id: 'claude-opus-4-6[1m]',
+          label: 'Opus 4.6 (1M)',
+          checked: selectedModel === 'claude-opus-4-6[1m]',
           type: 'model'
         }"
-        :is-selected="selectedModel === 'claude-opus-4-5'"
+        :is-selected="selectedModel === 'claude-opus-4-6[1m]'"
         :index="0"
         @click="(item) => handleModelSelect(item, close)"
       />
       <DropdownItem
         :item="{
-          id: 'claude-sonnet-4-5',
-          label: 'Sonnet 4.5',
-          checked: selectedModel === 'claude-sonnet-4-5',
+          id: 'claude-opus-4-6',
+          label: 'Opus 4.6',
+          checked: selectedModel === 'claude-opus-4-6',
           type: 'model'
         }"
-        :is-selected="selectedModel === 'claude-sonnet-4-5'"
+        :is-selected="selectedModel === 'claude-opus-4-6'"
         :index="1"
+        @click="(item) => handleModelSelect(item, close)"
+      />
+      <DropdownItem
+        :item="{
+          id: 'claude-sonnet-4-6[1m]',
+          label: 'Sonnet 4.6 (1M)',
+          checked: selectedModel === 'claude-sonnet-4-6[1m]',
+          type: 'model'
+        }"
+        :is-selected="selectedModel === 'claude-sonnet-4-6[1m]'"
+        :index="2"
+        @click="(item) => handleModelSelect(item, close)"
+      />
+      <DropdownItem
+        :item="{
+          id: 'claude-sonnet-4-6',
+          label: 'Sonnet 4.6',
+          checked: selectedModel === 'claude-sonnet-4-6',
+          type: 'model'
+        }"
+        :is-selected="selectedModel === 'claude-sonnet-4-6'"
+        :index="3"
         @click="(item) => handleModelSelect(item, close)"
       />
       <DropdownItem
@@ -45,7 +67,7 @@
           type: 'model'
         }"
         :is-selected="selectedModel === 'claude-haiku-4-5'"
-        :index="2"
+        :index="4"
         @click="(item) => handleModelSelect(item, close)"
       />
     </template>
@@ -65,22 +87,25 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  selectedModel: 'claude-opus-4-5'
+  selectedModel: 'claude-sonnet-4-6'
 })
 
 const emit = defineEmits<Emits>()
 
-// 计算显示的模型名称
 const selectedModelLabel = computed(() => {
   switch (props.selectedModel) {
-    case 'claude-opus-4-5':
-      return 'Opus 4.5'
-    case 'claude-sonnet-4-5':
-      return 'Sonnet 4.5'
+    case 'claude-opus-4-6[1m]':
+      return 'Opus 4.6 (1M)'
+    case 'claude-opus-4-6':
+      return 'Opus 4.6'
+    case 'claude-sonnet-4-6[1m]':
+      return 'Sonnet 4.6 (1M)'
+    case 'claude-sonnet-4-6':
+      return 'Sonnet 4.6'
     case 'claude-haiku-4-5':
       return 'Haiku 4.5'
     default:
-      return 'Opus 4.5'
+      return 'Sonnet 4.6'
   }
 })
 
@@ -88,13 +113,12 @@ function handleModelSelect(item: DropdownItemData, close: () => void) {
   console.log('Selected model:', item)
   close()
 
-  // 发送模型切换事件
   emit('modelSelect', item.id)
 }
 </script>
 
 <style scoped>
-/* Model 下拉样式 - 简洁透明样式 */
+/* Model - */
 .model-dropdown {
   display: flex;
   gap: 4px;
@@ -117,7 +141,7 @@ function handleModelSelect(item: DropdownItemData, close: () => void) {
   background-color: var(--vscode-inputOption-hoverBackground);
 }
 
-/* 共享的 Dropdown 样式 */
+/* Dropdown */
 .dropdown-content {
   display: flex;
   align-items: center;

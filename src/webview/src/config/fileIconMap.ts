@@ -1,9 +1,8 @@
 /**
- * 文件图标映射配置
- * 自动从 icons/fileIcons.ts 提取生成
- *
- * - 文件扩展名: 1120 项
- * - 特殊文件名: 762 项
+ * File icon mapping configuration
+ * Auto-generated from icons/fileIcons.ts
+ * - File extensions: 1120 items
+ * - Special filenames: 762 items
  */
 
 export interface IconConfig {
@@ -13,7 +12,7 @@ export interface IconConfig {
 }
 
 /**
- * 文件扩展名到图标的映射
+ * File extension to icon mapping
  */
 export const fileExtensionMap: Record<string, IconConfig> = {
   '60': { type: 'mdi', icon: 'slint' },
@@ -1340,7 +1339,6 @@ export const fileExtensionMap: Record<string, IconConfig> = {
 }
 
 /**
- * 特殊文件名到图标的映射
  */
 export const specialFileNameMap: Record<string, IconConfig> = {
   'justfile': { type: 'mdi', icon: 'just' },
