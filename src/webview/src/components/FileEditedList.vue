@@ -27,9 +27,13 @@
         :key="index"
         class="file-item"
         :title="file.filePath"
-        @click="openFile(file.filePath)"
+        @click="handleFileClick(file)"
       >
-        <span class="codicon codicon-file" style="font-size: 11px; opacity: 0.6; flex-shrink: 0;" />
+        <span
+          class="codicon"
+          :class="file.diffEdits?.length ? 'codicon-diff' : 'codicon-file'"
+          style="font-size: 11px; opacity: 0.6; flex-shrink: 0;"
+        />
         <span class="file-name">{{ file.name }}</span>
       </div>
     </div>
@@ -38,18 +42,20 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { FileEdit } from '../types/toolbar'
+import type { FileEdit, DiffEdit } from '../types/toolbar'
 
 interface Props {
   filesEdited?: FileEdit[]
   cwd?: string
   onOpenFile?: (filePath: string) => void
+  onOpenDiff?: (filePath: string, edits: DiffEdit[]) => void
 }
 
 const props = withDefaults(defineProps<Props>(), {
   filesEdited: () => [],
   cwd: '',
   onOpenFile: undefined,
+  onOpenDiff: undefined,
 })
 
 const expanded = ref(false)
@@ -77,6 +83,18 @@ function copyPaths() {
 
 function openFile(filePath: string) {
   props.onOpenFile?.(filePath)
+}
+
+function handleFileClick(file: FileEdit) {
+  // If the file has accumulated edits → open the diff view (original vs. current)
+  if (file.diffEdits && file.diffEdits.length > 0 && props.onOpenDiff) {
+    // Reverse order: backend inverts edits to reconstruct the original,
+    // so the last edit must be undone first
+    props.onOpenDiff(file.filePath, [...file.diffEdits].reverse())
+    return
+  }
+  // Otherwise (new file via Write, or no edits available) → just open the file
+  openFile(file.filePath)
 }
 </script>
 

@@ -28,6 +28,7 @@
           :files-edited="editedFiles"
           :cwd="session?.cwd.value ?? ''"
           :on-open-file="(p) => toolContext.fileOpener.open(p)"
+          :on-open-diff="(p, edits) => toolContext.fileOpener.openDiff(p, edits)"
         />
         <div
           ref="containerEl"
@@ -346,8 +347,7 @@
 
   const editedFiles = computed<FileEdit[]>(() => {
     const allMsgs = messages.value;
-    const seen = new Set<string>();
-    const result: FileEdit[] = [];
+    const fileMap = new Map<string, FileEdit>();
     for (const msg of allMsgs) {
       const content = msg?.message?.content;
       if (!Array.isArray(content)) continue;
@@ -357,17 +357,35 @@
         const { name, input } = block;
         if (!input?.file_path) continue;
         if (!['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(name)) continue;
-        if (!seen.has(input.file_path)) {
-          seen.add(input.file_path);
+
+        let entry = fileMap.get(input.file_path);
+        if (!entry) {
           const normalized = input.file_path.replace(/\\/g, '/');
-          result.push({
+          entry = {
             name: normalized.split('/').pop() || input.file_path,
             filePath: input.file_path,
+            diffEdits: [],
+            isNewFile: false,
+          };
+          fileMap.set(input.file_path, entry);
+        }
+
+        // Collect edits that have old_string/new_string (Edit, MultiEdit)
+        if ((name === 'Edit' || name === 'MultiEdit') && input.old_string != null && input.new_string != null) {
+          entry.diffEdits!.push({
+            oldString: input.old_string,
+            newString: input.new_string,
+            replaceAll: input.replace_all ?? false,
           });
+        }
+
+        // Mark as new file if the first operation on this file is a Write
+        if (name === 'Write' && entry.diffEdits!.length === 0) {
+          entry.isNewFile = true;
         }
       }
     }
-    return result;
+    return Array.from(fileMap.values());
   });
 
   const isBusy = computed(() => session.value?.busy.value ?? false);

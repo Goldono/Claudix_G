@@ -556,7 +556,7 @@ export async function handleShowEditDiff(
         }
         const baseName = path.basename(absolutePath);
         const tempPath = await fileSystemService.createTempFile(`${baseName}.before`, beforeContent);
-        await vscode.commands.executeCommand("vscode.diff", vscode.Uri.file(tempPath), vscode.Uri.file(absolutePath), `${baseName} (Edit)`, { preview: true });
+        await vscode.commands.executeCommand("vscode.diff", vscode.Uri.file(tempPath), vscode.Uri.file(absolutePath), `${baseName} (Edit)`, { preview: false });
         return { type: "show_edit_diff_response", success: true };
     } catch {
         return { type: "show_edit_diff_response", success: false };
