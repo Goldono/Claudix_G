@@ -88,6 +88,7 @@
             @add-attachment="handleAddAttachment"
             @add-file-ref="handleAddFileRef"
             @remove-attachment="handleRemoveAttachment"
+            @set-attachments="(a) => { attachments = a }"
             @thinking-toggle="handleToggleThinking"
             @full-text-toggle="fullTextMode = !fullTextMode"
             @mode-select="handleModeSelect"

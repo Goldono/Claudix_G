@@ -239,6 +239,8 @@ body {
   cursor: text;
   box-sizing: border-box;
   width: 100%;
+  max-width: 100%;
+  overflow: hidden;
   backdrop-filter: blur(9px) saturate(1.05);
   transition: box-shadow 100ms ease-in-out, border-color 100ms ease-in-out;
   z-index: 1;

@@ -27,10 +27,10 @@
     <!-- ： -->
     <div
       ref="textareaRef"
-      contenteditable="true"
+      contenteditable="plaintext-only"
       class="aislash-editor-input custom-scroll-container"
       :data-placeholder="placeholder"
-      style="min-height: 34px; max-height: 240px; resize: none; overflow-y: hidden; word-wrap: break-word; white-space: pre-wrap; width: 100%; height: 34px;"
+      style="min-height: 34px; max-height: 240px; resize: none; overflow-y: hidden; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap; width: 100%; max-width: 100%; height: 34px;"
       @input="handleInput"
       @keydown="handleKeydown"
       @paste="handlePaste"
@@ -177,6 +177,7 @@ interface Emits {
   (e: 'fullTextToggle'): void
   (e: 'modeSelect', mode: PermissionMode): void
   (e: 'modelSelect', modelId: string): void
+  (e: 'setAttachments', attachments: AttachmentItem[]): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -199,6 +200,65 @@ const runtime = inject(RuntimeKey)
 const content = ref('')
 const isLoading = ref(false)
 const textareaRef = ref<HTMLDivElement | null>(null)
+
+// Unified undo/redo history (tracks text + attachments together)
+interface EditorSnapshot {
+  text: string
+  attachments: AttachmentItem[]
+}
+const undoStack = ref<EditorSnapshot[]>([])
+const redoStack = ref<EditorSnapshot[]>([])
+let inputDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let lastSavedText = ''
+
+function currentSnapshot(): EditorSnapshot {
+  return {
+    text: textareaRef.value?.textContent || '',
+    attachments: [...(props.attachments || [])],
+  }
+}
+
+function pushUndo(snapshot?: EditorSnapshot) {
+  const snap = snapshot || currentSnapshot()
+  undoStack.value = [...undoStack.value, snap]
+  redoStack.value = []
+}
+
+function pushUndoDebounced() {
+  // Batch rapid keystrokes into one undo entry
+  if (inputDebounceTimer) clearTimeout(inputDebounceTimer)
+  const curText = textareaRef.value?.textContent || ''
+  if (lastSavedText === curText) return
+  inputDebounceTimer = setTimeout(() => {
+    // Save the state BEFORE this batch of typing started
+    if (undoStack.value.length === 0 || undoStack.value[undoStack.value.length - 1].text !== lastSavedText) {
+      undoStack.value = [...undoStack.value, { text: lastSavedText, attachments: [...(props.attachments || [])] }]
+      redoStack.value = []
+    }
+    lastSavedText = curText
+  }, 400)
+}
+
+function restoreSnapshot(snap: EditorSnapshot) {
+  // Restore text
+  if (textareaRef.value) {
+    textareaRef.value.textContent = snap.text
+    // Move cursor to end
+    const sel = window.getSelection()
+    if (sel && textareaRef.value.childNodes.length > 0) {
+      const range = document.createRange()
+      range.selectNodeContents(textareaRef.value)
+      range.collapse(false)
+      sel.removeAllRanges()
+      sel.addRange(range)
+    }
+  }
+  content.value = snap.text
+  lastSavedText = snap.text
+  // Restore attachments
+  emit('setAttachments', [...snap.attachments])
+  autoResizeTextarea()
+}
 
 const isSubmitDisabled = computed(() => {
   return !content.value.trim() || isLoading.value
@@ -349,6 +409,9 @@ function handleInput(event: Event) {
   content.value = textContent
   emit('input', textContent)
 
+  // Track text changes for unified undo
+  pushUndoDebounced()
+
  // （slash @）
   slashCompletion.evaluateQuery(textContent)
   fileCompletion.evaluateQuery(textContent)
@@ -392,6 +455,39 @@ function autoResizeTextarea() {
 }
 
 function handleKeydown(event: KeyboardEvent) {
+  const ctrlOrMeta = event.ctrlKey || event.metaKey
+
+  // Ctrl+Z: unified undo (text + attachments)
+  if (ctrlOrMeta && event.key === 'z' && !event.shiftKey) {
+    if (undoStack.value.length > 0) {
+      event.preventDefault()
+      // Flush any pending debounced save
+      if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
+      // Push current state to redo
+      redoStack.value = [...redoStack.value, currentSnapshot()]
+      // Pop and restore
+      const prev = undoStack.value[undoStack.value.length - 1]
+      undoStack.value = undoStack.value.slice(0, -1)
+      restoreSnapshot(prev)
+    }
+    return
+  }
+
+  // Ctrl+Y or Ctrl+Shift+Z: unified redo
+  if (ctrlOrMeta && (event.key === 'y' || (event.key === 'z' && event.shiftKey))) {
+    if (redoStack.value.length > 0) {
+      event.preventDefault()
+      if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
+      // Push current state to undo
+      undoStack.value = [...undoStack.value, currentSnapshot()]
+      // Pop and restore
+      const next = redoStack.value[redoStack.value.length - 1]
+      redoStack.value = redoStack.value.slice(0, -1)
+      restoreSnapshot(next)
+    }
+    return
+  }
+
   if (slashCompletion.isOpen.value) {
     slashCompletion.handleKeydown(event)
     return
@@ -453,7 +549,20 @@ function handlePaste(event: ClipboardEvent) {
       dataTransfer.items.add(file)
     }
     handleAddFiles(dataTransfer.files)
+    return
   }
+
+  // Text paste: save snapshot before the native paste happens,
+  // then sync after. contenteditable="plaintext-only" strips formatting.
+  if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
+  pushUndo()
+  // After browser inserts the text, sync our state
+  setTimeout(() => {
+    const curText = textareaRef.value?.textContent || ''
+    content.value = curText
+    lastSavedText = curText
+    autoResizeTextarea()
+  }, 0)
 }
 
 function getWorkspaceRoot(): string | undefined {
@@ -613,6 +722,9 @@ async function handleDrop(event: DragEvent) {
   if (paths.length === 0) return
 
   // Emit file references to parent → shown as pill chips, not inserted as text
+  if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
+  pushUndo()
+  lastSavedText = textareaRef.value?.textContent || ''
   emit('addFileRef', paths)
 
   nextTick(() => {
@@ -665,10 +777,17 @@ function handleMention(filePath?: string) {
 }
 
 function handleAddFiles(files: FileList) {
+  // Flush any pending text debounce, then save current state
+  if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
+  pushUndo()
+  lastSavedText = textareaRef.value?.textContent || ''
   emit('addAttachment', files)
 }
 
 function handleRemoveAttachment(id: string) {
+  if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
+  pushUndo()
+  lastSavedText = textareaRef.value?.textContent || ''
   emit('removeAttachment', id)
 }
 
@@ -719,6 +838,15 @@ defineExpose({
 /* - caret */
 .aislash-editor-input {
   line-height: 18px;
+  overflow-x: hidden;
+}
+
+/* Prevent pasted or child elements from breaking the layout */
+.aislash-editor-input :deep(*) {
+  max-width: 100% !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
 }
 
 /* */
