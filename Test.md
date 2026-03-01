@@ -22,6 +22,15 @@ Egal wie die Aufgabe lautet (außer bei absoluten Minimal-Korrekturen): Anstatt 
 - **Gehe zwingend in 4-5 Iterationen (Frage -> Antwort -> Folgefrage)**, bis wirklich absolut jedes Detail glasklar ist.
 - Im Zweifel: Ein längerer Dialog im Vorfeld ist ausdrücklich GEWÜNSCHT. Nichts darf auf bloßen Annahmen basieren!
 
+### TEST-ABSATZ 4: Vor dem ersten Test-Block
+Dieser Absatz wurde als vierter Test eingefuegt und steht direkt VOR Test-Absatz 1. So kann man pruefen, ob zwei aufeinanderfolgende Einfuegungen korrekt zurueckgesetzt werden koennen — einzeln oder zusammen.
+
+### TEST-ABSATZ 1: Zum Testen des Zurucksetzens
+Dies ist der erste Test-Absatz, der zum Testen der Revert-Funktion eingefugt wurde. Er steht hier zwischen den Regeln, damit man gut pruefen kann, ob das Zurucksetzen einzelner Aenderungen funktioniert. Wenn dieser Absatz nach dem Revert verschwunden ist, hat alles geklappt.
+
+### TEST-ABSATZ 1: Zum Testen des Zurucksetzens
+Dies ist der erste Test-Absatz, der zum Testen der Revert-Funktion eingefugt wurde. Er steht hier zwischen den Regeln, damit man gut pruefen kann, ob das Zurucksetzen einzelner Aenderungen funktioniert. Wenn dieser Absatz nach dem Revert verschwunden ist, hat alles geklappt.
+
 ### REGEL 3: Aufgaben-Triage & Automatischer Plan-Modus
 Bewerte jede Aufgabe vor Beginn:
 - **Quick Fix:** (1-2 Dateien, z.B. Tippfehler, minimale UI-Anpassung). Nach kurzer Klärung direkt umsetzen.
@@ -30,6 +39,9 @@ Bewerte jede Aufgabe vor Beginn:
 ---
 
 ## QUALITÄT & VERIFIKATION
+
+### NEUER TEST-ABSATZ Z1: Anfang des Qualitaets-Bereichs
+Erster von vier neuen Test-Absaetzen (Runde 3). Er sitzt direkt am Anfang des Qualitaets-Abschnitts, zwischen der Trennlinie und Regel 4. Damit wird getestet, ob Aenderungen am Anfang eines Abschnitts zuverlaessig zurueckgesetzt werden.
 
 ### REGEL 4: Pflicht-Verifikation vor Abschluss
 **NIEMALS eine Aufgabe als erledigt melden ohne vorherige Punkt-für-Punkt-Verifikation.**
@@ -43,6 +55,12 @@ Nach jedem Import IMMER prüfen:
 - Wird die Komponente auch im JSX/Return verwendet?
 - Wird sie conditional gerendert, wo sie hingehört?
 
+### TEST-ABSATZ A: Erster neuer Testblock
+Dieser Absatz wurde zwischen Regel 5 und Regel 6 eingefuegt. Er dient zum Testen der Zuruecksetz-Funktion. Wenn das Zuruecksetzen funktioniert, sollte dieser Text danach wieder verschwunden sein. Position: oberes Drittel der Datei.
+
+### NEUER TEST-ABSATZ X1: Erster Revert-Test (obere Mitte)
+Dieser Absatz wurde als erster von drei neuen Test-Absaetzen eingefuegt. Er befindet sich zwischen Regel 5 und Regel 6, also im oberen Mittelbereich der Datei. Wenn das Zuruecksetzen korrekt funktioniert, sollte dieser Text danach wieder verschwunden sein.
+
 ### REGEL 6: Farbschema ist bindend
 Wenn ein Plan ein Farbschema definiert (z.B. "Lila für Wissens-Schritte", "Gelb für Kataloge"):
 - Diese Farben MÜSSEN im Code umgesetzt werden.
@@ -54,6 +72,15 @@ Bei Dateien > 2000 Zeilen:
 - Nach jeder Änderung: Kurze Verifikation, ob die Änderung auch greift.
 - Besonders bei Conditional Rendering: Prüfen, ob ALLE Bedingungen korrekt sind.
 
+### TEST-ABSATZ 5: Vor dem zweiten Test-Block
+Fuenfter Test-Absatz, platziert direkt vor Test-Absatz 2. Hiermit laesst sich testen, ob das Zuruecksetzen auch funktioniert, wenn mehrere Einfuegungen dicht beieinander in der Mitte der Datei liegen.
+
+### TEST-ABSATZ 2: Zweiter Test-Block fuer Revert
+Hier ist der zweite Test-Absatz. Er befindet sich ungefaehr in der Mitte der Datei und dient ebenfalls zum Testen. Man kann damit pruefen, ob auch Aenderungen in der Mitte einer Datei korrekt zurueckgesetzt werden koennen. Dieser Text sollte nach einem erfolgreichen Revert nicht mehr sichtbar sein.
+
+### TEST-ABSATZ 2: Zweiter Test-Block fuer Revert
+Hier ist der zweite Test-Absatz. Er befindet sich ungefaehr in der Mitte der Datei und dient ebenfalls zum Testen. Man kann damit pruefen, ob auch Aenderungen in der Mitte einer Datei korrekt zurueckgesetzt werden koennen. Dieser Text sollte nach einem erfolgreichen Revert nicht mehr sichtbar sein.
+
 ### REGEL 8: Ehrliche Selbstprüfung & Finale 100%-Kontrolle
 - **Kritischer Abschluss:** Bevor du eine Aufgabe endgültig abschließt, tritt einen Schritt zurück. Prüfe das große Ganze extrem kritisch. Sei brutal ehrlich zu dir selbst: Fehlt noch etwas? Gibt es unbedachte Seiteneffekte? **Schließe die Aufgabe erst ab, wenn du dir zu 100% sicher bist, dass alles absolut korrekt ist.** Lieber noch eine Extra-Runde prüfen, als einen Fehler zu übersehen.
 - **Nicht raten:** "Sollte funktionieren" ist NICHT akzeptabel — nur "habe verifiziert, dass es funktioniert".
@@ -61,12 +88,18 @@ Bei Dateien > 2000 Zeilen:
 - **Kein blindes Einlesen:** Nicht massenhaft ganze Dateien laden. Gezielt suchen.
 - **Im Zweifel fragen:** Wenn du feststeckst — User fragen statt raten. Bei Feedback wie "prüfe nochmal": Sofort jeden Punkt einzeln mit Grep verifizieren.
 
+### NEUER TEST-ABSATZ X2: Zweiter Revert-Test (exakte Mitte)
+Hier ist der zweite neue Test-Absatz. Er sitzt zwischen Regel 8 und Regel 9, also ziemlich genau in der Mitte der Datei. Damit laesst sich pruefen, ob auch Aenderungen im Kern der Datei zuverlaessig erkannt und rueckgaengig gemacht werden koennen.
+
 ### REGEL 9: Datei lesen VOR jeder Änderung — PFLICHT
 **VOR jeder Datei-Änderung MUSS die Datei mit dem Read-Tool frisch eingelesen werden** — auch wenn sie im selben Chat bereits einmal gelesen wurde.
 - **Niemals annehmen**, wie eine Datei gerade aussieht. Dateien können sich zwischen zwei Schritten geändert haben (durch Linter, Formatter, vorherige fehlgeschlagene Edits etc.).
 - **Der genaue Text im Edit-Tool** (das `old_string`-Feld) muss 1:1 mit dem aktuellen Dateiinhalt übereinstimmen — kein Raten, kein "sollte so sein".
 - **Bei einem fehlgeschlagenen Edit:** Datei sofort neu lesen, dann erst erneut versuchen. NIEMALS denselben String ein zweites Mal blind verwenden.
 - **Kurzformel:** Lesen → Exakten Text kopieren → Ersetzen. Immer in dieser Reihenfolge.
+
+### NEUER TEST-ABSATZ Z2: Zwischen Regel 9 und Regel 10
+Zweiter neuer Test-Absatz (Runde 3). Platziert zwischen der Datei-Lese-Regel und der Kommunikations-Regel, also mitten im Herzen der Datei. Wenn dieser Absatz nach dem Zuruecksetzen weg ist, funktioniert der Revert in der Dateimitte korrekt.
 
 ### REGEL 10: Verständliche Kommunikation — IMMER, nicht nur am Ende
 **Gilt für JEDE Nachricht an den User** — Fragen, Zwischenstände, Problembeschreibungen, Pläne UND Abschlussberichte.
@@ -79,6 +112,9 @@ Bei Dateien > 2000 Zeilen:
 - **Verbot:** KEINE Dateinamen, KEINE Variablen, KEIN Entwickler-Jargon in der Kommunikation mit dem User (im Code und in Plänen natürlich schon).
 - **Falsch:** "State im appStore für vorbereitungMessages und IPC-Listener hinzugefügt."
 - **Richtig:** "Der Chatverlauf für die Vorbereitung wird nun zuverlässig gespeichert und kann live mitgelesen werden."
+
+### TEST-ABSATZ B: Zweiter neuer Testblock
+Hier ist der zweite eingefuegte Test-Absatz. Er sitzt zwischen Regel 10 und Regel 11, also ungefaehr in der Mitte der Datei. Auch dieser Text sollte nach einem erfolgreichen Zuruecksetzen nicht mehr sichtbar sein. Position: mittleres Drittel der Datei.
 
 ### REGEL 11: Tiefgreifende Plan-Prüfung (End-to-End-Verifikation)
 Wenn der User bittet, einen Plan zu prüfen, gelten folgende **unverhandelbare** Regeln:
@@ -97,6 +133,9 @@ Wenn der User bittet, einen Plan zu prüfen, gelten folgende **unverhandelbare**
    - Kompiliert der Code? (TypeScript-Check wenn möglich)
 6. **Ehrliches Ergebnis:** Bei jedem Punkt klar sagen: ✅ verifiziert ODER ❌ fehlt/fehlerhaft mit konkreter Begründung. NIEMALS pauschal alles als ✅ markieren.
 
+### NEUER TEST-ABSATZ X3: Dritter Revert-Test (untere Mitte)
+Der dritte und letzte neue Test-Absatz. Er wurde zwischen Regel 11 und Regel 12 platziert, also im unteren Mittelbereich. Mit drei Absaetzen an unterschiedlichen Positionen kann man gut testen, ob das Zuruecksetzen in allen Bereichen der Datei funktioniert.
+
 ### REGEL 12: Plan-Abschluss-Validierung
 Wenn eine Plan-basierte Aufgabe abgeschlossen wird, MUSS vor dem Abschlussbericht folgendes geprüft werden:
 1. **Datei-Vollständigkeit:** Sind ALLE im Plan aufgelisteten Dateien (geändert/neu/gelöscht) auch tatsächlich angefasst worden? Keine vergessene Datei?
@@ -106,6 +145,9 @@ Wenn eine Plan-basierte Aufgabe abgeschlossen wird, MUSS vor dem Abschlussberich
    - `status: draft/in-progress` → `status: completed` (nur wenn wirklich alles erledigt)
    - Eventuelle Abweichungen oder zusätzliche Änderungen im Plan dokumentieren
 4. **Gegenkontrolle:** Prüfe ob es Dateien gibt, die geändert wurden, aber NICHT im Plan stehen. Falls ja → Plan nachträglich ergänzen.
+
+### TEST-ABSATZ 7: Zwischen Regel 12 und Regel 13
+Siebter und letzter Test-Absatz. Er sitzt zwischen zwei Regeln weiter unten in der Datei. Damit hast du insgesamt sieben Testpunkte an verschiedenen Stellen verteilt — ideal, um das Zuruecksetzen in allen Bereichen der Datei zu pruefen.
 
 ### REGEL 13: Bestehende Muster wiederverwenden — Über den Tellerrand schauen
 **NIEMALS das Rad neu erfinden.** Bevor du irgendetwas Neues baust, prüfe ZUERST:
@@ -120,6 +162,21 @@ Wenn eine Plan-basierte Aufgabe abgeschlossen wird, MUSS vor dem Abschlussberich
 **Kurzformel:** Erst schauen was es schon gibt → dann darauf aufbauen → nur wenn wirklich NICHTS passt, etwas Neues erfinden.
 
 ---
+
+### TEST-ABSATZ 6: Vor dem dritten Test-Block
+Sechster Test-Absatz, eingefuegt direkt vor Test-Absatz 3. Damit wird geprueft, ob Aenderungen am unteren Ende der Datei zuverlaessig erkannt und zurueckgesetzt werden.
+
+### TEST-ABSATZ 3: Dritter und letzter Test-Block
+Der dritte Test-Absatz steht weiter unten in der Datei, kurz vor dem Abschnitt ueber den Planungs-Workflow. Damit kannst du testen, ob das Zurucksetzen auch bei Aenderungen funktioniert, die naeher am Ende der Datei liegen. Drei verschiedene Positionen geben einen guten Ueberblick, ob die Revert-Funktion zuverlaessig arbeitet.
+
+### TEST-ABSATZ 3: Dritter und letzter Test-Block
+Der dritte Test-Absatz steht weiter unten in der Datei, kurz vor dem Abschnitt ueber den Planungs-Workflow. Damit kannst du testen, ob das Zurucksetzen auch bei Aenderungen funktioniert, die naeher am Ende der Datei liegen. Drei verschiedene Positionen geben einen guten Ueberblick, ob die Revert-Funktion zuverlaessig arbeitet.
+
+### TEST-ABSATZ C: Dritter neuer Testblock
+Der dritte und letzte neue Test-Absatz. Er wurde direkt vor dem Planungs-Abschnitt eingefuegt, also im unteren Drittel der Datei. Damit hast du drei Testpunkte an gut verteilten Stellen, um das Zuruecksetzen gruendlich zu pruefen. Position: unteres Drittel der Datei.
+
+### NEUER TEST-ABSATZ Z3: Vor dem Planungs-Workflow
+Dritter neuer Test-Absatz (Runde 3). Er sitzt direkt vor dem Planungs-Workflow-Abschnitt, also am Uebergang zwischen Regeln und Workflow. Hier wird geprueft, ob Aenderungen an Abschnitts-Grenzen sauber rueckgaengig gemacht werden.
 
 ## DEEP PLANNING WORKFLOW
 
@@ -256,6 +313,9 @@ todos:
 - KI-Provider: Gemini, Alibaba/Qwen
 
 ---
+
+### NEUER TEST-ABSATZ Z4: Vor dem Styling-Abschnitt
+Vierter und letzter neuer Test-Absatz (Runde 3). Er wurde ganz unten in der Datei eingefuegt, direkt vor dem Styling-Abschnitt. Damit sind die vier Absaetze gut ueber die gesamte Datei verteilt — vom oberen Qualitaets-Bereich bis zum unteren Styling-Bereich.
 
 ## STYLING & UI-KONVENTIONEN
 

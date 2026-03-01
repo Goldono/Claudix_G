@@ -25,6 +25,9 @@ export interface MessageData {
  * - system/result ：content string
  */
 export class Message {
+  private static _counter = 0;
+
+  id: string;
   type: MessageRole;
   message: MessageData;
   timestamp: number;
@@ -44,6 +47,7 @@ export class Message {
       is_error?: boolean;
     }
   ) {
+    this.id = `msg-${Date.now()}-${++Message._counter}`;
     this.type = type;
     this.message = message;
     this.timestamp = timestamp;

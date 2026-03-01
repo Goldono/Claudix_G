@@ -32,6 +32,7 @@
         <div
           ref="containerEl"
           :class="['messagesContainer', 'custom-scroll-container', { dimmed: permissionRequestsLen > 0 }]"
+          @scroll="handleMessagesScroll"
         >
           <template v-if="messages.length === 0">
             <div v-if="isBusy" class="emptyState">
@@ -52,6 +53,7 @@
                 v-for="(m, i) in messages"
                 :key="m?.id ?? i"
                 :message="m"
+                :message-index="i"
                 :context="toolContext"
               />
             <!-- </div> -->
@@ -122,6 +124,17 @@
   const runtime = inject(RuntimeKey);
   if (!runtime) throw new Error('[ChatPage] runtime not provided');
 
+  // Store reverted edits per message index for undo-restore toggle
+  type EditEntry = { filePath: string; editType: 'edit' | 'write'; oldString?: string; newString?: string; fileContents?: string };
+  type RestoreState = { atIndex: number | null; checkpoints: Map<number, EditEntry[]> };
+  const restoredCheckpoints = ref<Map<number, EditEntry[]>>(new Map());
+  // Track which index messages are dimmed from (null = nothing dimmed)
+  const restoredAtIndex = ref<number | null>(null);
+
+  // Per-session save/restore of checkpoint state (so switching tabs preserves gray)
+  const savedRestoreStates = new Map<any, RestoreState>();
+  let previousRawSession: any = null;
+
   const toolContext = computed<ToolContext>(() => ({
     fileOpener: {
       open: (filePath: string, location?: any) => {
@@ -143,22 +156,66 @@
       const connection = await runtime.sessionStore.getConnection();
       return connection.revertFileEdit(action, filePath, editType, options);
     },
-    restoreCheckpoint: async (messageId: string) => {
+    restoreCheckpoint: async (messageIndex: number) => {
       const allMsgs = messages.value;
-      const msgIndex = allMsgs.findIndex((m: any) => m.id === messageId);
-      if (msgIndex < 0) return;
+      if (messageIndex < 0 || messageIndex >= allMsgs.length) return;
 
-      // Collect all Edit/Write tool_use blocks from messages AFTER this one
-      const editsToRevert: Array<{ filePath: string; editType: 'edit' | 'write'; oldString?: string; newString?: string; fileContents?: string }> = [];
+      // --- UNDO MODE: if already restored, re-apply the saved edits ---
+      const savedEdits = restoredCheckpoints.value.get(messageIndex);
+      if (savedEdits && savedEdits.length > 0) {
+        let reapplied = 0;
+        let reapplyFailed = 0;
+        const conn = await runtime.sessionStore.getConnection();
 
-      for (let i = msgIndex + 1; i < allMsgs.length; i++) {
+        for (const edit of savedEdits) {
+          try {
+            const result = await conn.revertFileEdit('reapply', edit.filePath, edit.editType, {
+              oldString: edit.oldString,
+              newString: edit.newString,
+              fileContents: edit.fileContents,
+              previousContents: null,
+            });
+            if (result.success) reapplied++;
+            else reapplyFailed++;
+          } catch {
+            reapplyFailed++;
+          }
+        }
+
+        // Clear the restored state + remove dimming
+        const newMap = new Map(restoredCheckpoints.value);
+        newMap.delete(messageIndex);
+        restoredCheckpoints.value = newMap;
+        restoredAtIndex.value = null;
+
+        const redoMsg = reapplyFailed > 0
+          ? `${reapplied} Änderungen wiederhergestellt, ${reapplyFailed} fehlgeschlagen.`
+          : `${reapplied} Änderungen wiederhergestellt.`;
+        await runtime.appContext.showNotification?.(redoMsg, reapplyFailed > 0 ? 'warning' : 'info');
+        return;
+      }
+
+      // --- RESTORE MODE ---
+
+      // Auto-stop if chat is running
+      const s = session.value;
+      if (isBusy.value && s) {
+        void s.interrupt();
+        // Brief wait for interrupt to take effect
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      // Collect edits after this message
+      const editsToRevert: EditEntry[] = [];
+
+      for (let i = messageIndex + 1; i < allMsgs.length; i++) {
         const msg = allMsgs[i];
         const content = msg?.message?.content;
         if (!Array.isArray(content)) continue;
 
         for (const wrapper of content) {
-          const block = wrapper?.content || wrapper;
-          if (block?.type !== 'tool_use') continue;
+          const block = wrapper?.content;
+          if (!block || block.type !== 'tool_use') continue;
           const name = block.name;
           const input = block.input;
           if (!input?.file_path) continue;
@@ -180,15 +237,11 @@
         }
       }
 
-      if (editsToRevert.length === 0) {
-        await runtime.appContext.showNotification?.('Keine Dateiänderungen nach dieser Nachricht gefunden.', 'info');
-        return;
-      }
-
       // Revert in reverse order (most recent first)
       const connection = await runtime.sessionStore.getConnection();
       let reverted = 0;
       let failed = 0;
+      const successfulReverts: EditEntry[] = [];
 
       for (let i = editsToRevert.length - 1; i >= 0; i--) {
         const edit = editsToRevert[i];
@@ -199,17 +252,62 @@
             fileContents: edit.fileContents,
             previousContents: null,
           });
-          if (result.success) reverted++;
-          else failed++;
+          if (result.success) {
+            reverted++;
+            successfulReverts.unshift(edit);
+          } else {
+            failed++;
+          }
         } catch {
           failed++;
         }
       }
 
-      const msg = failed > 0
-        ? `${reverted} Änderungen rückgängig gemacht, ${failed} fehlgeschlagen (Dateien wurden zwischenzeitlich geändert).`
-        : `${reverted} Änderungen rückgängig gemacht.`;
-      await runtime.appContext.showNotification?.(msg, failed > 0 ? 'warning' : 'info');
+      // Save for undo toggle + set dimming
+      if (successfulReverts.length > 0) {
+        const newMap = new Map(restoredCheckpoints.value);
+        newMap.set(messageIndex, successfulReverts);
+        restoredCheckpoints.value = newMap;
+      }
+      restoredAtIndex.value = messageIndex;
+
+      if (reverted > 0 || failed > 0) {
+        const msg = failed > 0
+          ? `${reverted} Änderungen rückgängig gemacht, ${failed} fehlgeschlagen.`
+          : `${reverted} Änderungen rückgängig gemacht.`;
+        await runtime.appContext.showNotification?.(msg, failed > 0 ? 'warning' : 'info');
+      }
+    },
+    isCheckpointRestored: (messageIndex: number) => {
+      return restoredAtIndex.value === messageIndex;
+    },
+    restoredAtIndex: restoredAtIndex.value,
+    editAndRestart: async (messageIndex: number, newContent: string) => {
+      // Use raw Session object directly (has truncateMessagesAfter + send)
+      const rawSession = activeSessionRaw.value;
+      if (!rawSession) return;
+
+      // Stop chat if running
+      if (isBusy.value) {
+        await rawSession.interrupt();
+        await new Promise(r => setTimeout(r, 300));
+      }
+
+      // Truncate: keep messages 0..messageIndex-1 (remove clicked message + everything after)
+      rawSession.truncateMessagesAfter(messageIndex > 0 ? messageIndex - 1 : 0);
+
+      // Clear restore state
+      restoredAtIndex.value = null;
+      restoredCheckpoints.value = new Map();
+
+      // Send the edited message as new
+      try {
+        userScrolledUp = false;
+        await rawSession.send(newContent);
+        scrollToBottom(true);
+      } catch (e) {
+        console.error('[ChatPage] editAndRestart send failed', e);
+      }
     },
     showNotification: async (message, severity) => {
       return runtime.appContext.showNotification?.(message, severity);
@@ -309,6 +407,8 @@
   const fullTextMode = ref(false);
 
   let prevCount = 0;
+  // Track whether user has scrolled up — if so, don't auto-scroll
+  let userScrolledUp = false;
 
   function stringify(m: any): string {
     try {
@@ -318,20 +418,55 @@
     }
   }
 
-  function scrollToBottom(): void {
+  function isNearBottom(): boolean {
+    const el = containerEl.value;
+    if (!el) return true;
+    // Consider "near bottom" if within 80px of the end
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
+
+  function handleMessagesScroll(): void {
+    userScrolledUp = !isNearBottom();
+  }
+
+  function scrollToBottom(force = false): void {
+    if (!force && userScrolledUp) return;
     const end = endEl.value;
     if (!end) return;
     requestAnimationFrame(() => {
       try {
         end.scrollIntoView({ block: 'end' });
+        userScrolledUp = false;
       } catch {}
     });
   }
 
+  // Save/restore checkpoint state per session so gray persists across tab switches
+  watch(() => activeSessionRaw.value, (newRaw) => {
+    // Save current state for the session we're leaving
+    if (previousRawSession) {
+      savedRestoreStates.set(previousRawSession, {
+        atIndex: restoredAtIndex.value,
+        checkpoints: new Map(restoredCheckpoints.value),
+      });
+    }
+    // Restore saved state for the session we're entering
+    const saved = newRaw ? savedRestoreStates.get(newRaw) : null;
+    if (saved) {
+      restoredAtIndex.value = saved.atIndex;
+      restoredCheckpoints.value = saved.checkpoints;
+    } else {
+      restoredAtIndex.value = null;
+      restoredCheckpoints.value = new Map();
+    }
+    previousRawSession = newRaw;
+  });
+
   watch(session, async () => {
     prevCount = 0;
+    userScrolledUp = false;
     await nextTick();
-    scrollToBottom();
+    scrollToBottom(true);
   });
 
   // moved above
@@ -343,20 +478,20 @@
       prevCount = len;
       if (increased) {
         await nextTick();
-        scrollToBottom();
+        scrollToBottom(); // respects userScrolledUp
       }
     }
   );
 
   watch(permissionRequestsLen, async () => {
     await nextTick();
-    scrollToBottom();
+    scrollToBottom(); // respects userScrolledUp
   });
 
   onMounted(async () => {
     prevCount = messages.value.length;
     await nextTick();
-    scrollToBottom();
+    scrollToBottom(true);
   });
 
   onUnmounted(() => {
@@ -435,8 +570,10 @@
     }
 
     try {
+      userScrolledUp = false;
       await s.send(trimmed || ' ', binaryAttachments);
       attachments.value = [];
+      scrollToBottom(true);
     } catch (e) {
       console.error('[ChatPage] send failed', e);
     }

@@ -1,9 +1,11 @@
 <template>
   <component
     class="message"
+    :class="{ 'dimmed-restored': isDimmed }"
     v-if="!message.isEmpty"
     :is="messageComponent"
     :message="message"
+    :message-index="messageIndex"
     :context="context"
   />
 </template>
@@ -21,6 +23,7 @@ import SlashCommandResultMessage from './SlashCommandResultMessage.vue';
 
 interface Props {
   message: Message;
+  messageIndex: number;
   context: ToolContext;
 }
 
@@ -44,10 +47,23 @@ const messageComponent = computed(() => {
       return null;
   }
 });
+
+const isDimmed = computed(() => {
+  const restored = props.context?.restoredAtIndex;
+  if (restored == null) return false;
+  return props.messageIndex > restored;
+});
 </script>
 
 <style scoped>
   .message {
     margin-bottom: 4px;
+  }
+
+  .dimmed-restored {
+    opacity: 0.3;
+    pointer-events: none;
+    filter: grayscale(0.6);
+    transition: opacity 0.3s ease, filter 0.3s ease;
   }
 </style>

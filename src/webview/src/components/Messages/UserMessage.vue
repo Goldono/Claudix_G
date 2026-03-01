@@ -29,10 +29,12 @@
               </button>
               <button
                 class="action-btn"
+                :class="{ 'is-restored': isRestored }"
                 @click.stop="handleRestore"
-                title="Restore checkpoint"
+                :title="isRestored ? 'Undo restore' : 'Restore checkpoint'"
               >
-                <span class="codicon codicon-restore"></span>
+                <span v-if="isRestored" class="codicon codicon-redo" />
+                <span v-else class="codicon codicon-restore" />
               </button>
             </div>
           </div>
@@ -64,6 +66,7 @@ import FileIcon from '../FileIcon.vue';
 
 interface Props {
   message: Message;
+  messageIndex: number;
   context: ToolContext;
 }
 
@@ -73,6 +76,10 @@ const isEditing = ref(false);
 const chatInputRef = ref<InstanceType<typeof ChatInputBox>>();
 const containerRef = ref<HTMLElement>();
 const attachments = ref<AttachmentItem[]>([]);
+
+const isRestored = computed(() => {
+  return props.context?.restoredAtIndex === props.messageIndex;
+});
 
 // （）
 const displayContent = computed(() => {
@@ -156,11 +163,17 @@ function cancelEdit() {
  attachments.value = [];
 }
 
-function handleSaveEdit(content?: string) {
+async function handleSaveEdit(content?: string) {
   const finalContent = content || displayContent.value;
 
-  if (finalContent.trim() && finalContent !== displayContent.value) {
- // TODO: session.send()
+  if (finalContent.trim()) {
+    // If checkpoint is restored, use editAndRestart to truncate + resend
+    if (isRestored.value && props.context?.editAndRestart) {
+      cancelEdit();
+      await props.context.editAndRestart(props.messageIndex, finalContent.trim());
+      return;
+    }
+    // Normal edit (not yet implemented for non-restored state)
     console.log('[UserMessage] Save edit:', finalContent.trim());
   }
 
@@ -181,7 +194,7 @@ async function handleCopy() {
 
 async function handleRestore() {
   if (!props.context?.restoreCheckpoint) return;
-  await props.context.restoreCheckpoint(props.message.id);
+  await props.context.restoreCheckpoint(props.messageIndex);
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -343,6 +356,11 @@ onUnmounted(() => {
 .action-btn.copied {
   opacity: 1;
   color: #22c55e;
+}
+
+.action-btn.is-restored {
+  opacity: 1;
+  color: var(--vscode-charts-orange);
 }
 
 .action-btn .codicon {

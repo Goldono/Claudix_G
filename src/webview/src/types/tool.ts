@@ -14,7 +14,10 @@ export interface ToolContext {
     editType: 'edit' | 'write',
     options: { oldString?: string; newString?: string; fileContents?: string; previousContents?: string | null }
   ) => Promise<{ success: boolean; error?: string }>;
-  restoreCheckpoint?: (messageId: string) => Promise<void>;
+  restoreCheckpoint?: (messageIndex: number) => Promise<void>;
+  isCheckpointRestored?: (messageIndex: number) => boolean;
+  restoredAtIndex?: number | null;
+  editAndRestart?: (messageIndex: number, newContent: string) => Promise<void>;
   showNotification?: (message: string, severity: 'info' | 'warning' | 'error') => Promise<any>;
 }
 

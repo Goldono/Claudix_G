@@ -295,6 +295,17 @@ export class Session {
     connection.interruptClaude(channelId);
   }
 
+  /**
+   * Remove all messages after the given index (exclusive).
+   * Messages at index 0..keepUpToIndex are kept.
+   */
+  truncateMessagesAfter(keepUpToIndex: number): void {
+    const current = this.messages();
+    if (keepUpToIndex < 0) return;
+    if (keepUpToIndex >= current.length - 1) return; // nothing to remove
+    this.messages(current.slice(0, keepUpToIndex + 1));
+  }
+
   async restartClaude(): Promise<void> {
     await this.interrupt();
     this.claudeChannelId(undefined);
