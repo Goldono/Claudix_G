@@ -66,6 +66,21 @@
         </div>
 
         <div class="inputContainer">
+          <!-- Queued message banner -->
+          <div v-if="queuedMessage" class="queued-message-banner">
+            <div class="queued-message-content">
+              <span class="queued-message-label">Queued</span>
+              <span class="queued-message-text">{{ queuedMessage }}</span>
+            </div>
+            <div class="queued-message-actions">
+              <button class="queued-message-btn send-now" @click="flushQueuedMessage" title="Interrupt & send now">
+                <span class="codicon codicon-debug-continue" />
+              </button>
+              <button class="queued-message-btn dismiss" @click="dismissQueuedMessage" title="Dismiss">
+                <span class="codicon codicon-close" />
+              </button>
+            </div>
+          </div>
           <PermissionRequestModal
             v-if="pendingPermission && toolContext"
             :request="pendingPermission"
@@ -84,6 +99,7 @@
             :selected-model="session?.modelSelection.value"
             :full-text-mode="fullTextMode"
             @submit="handleSubmit"
+            @queue-message="(msg: string) => { queuedMessage = msg }"
             @stop="handleStop"
             @add-attachment="handleAddAttachment"
             @add-file-ref="handleAddFileRef"
@@ -133,6 +149,12 @@
   // Track which index messages are dimmed from (null = nothing dimmed)
   const restoredAtIndex = ref<number | null>(null);
 
+  // Track whether a revert is active — triggers fresh session on next submit
+  const hasActiveRevert = ref(false);
+
+  // Queued message: shown when user submits while AI is busy
+  const queuedMessage = ref<string | null>(null);
+
   // Per-session save/restore of checkpoint state (so switching tabs preserves gray)
   const savedRestoreStates = new Map<any, RestoreState>();
   let previousRawSession: any = null;
@@ -156,7 +178,11 @@
     },
     revertFileEdit: async (action, filePath, editType, options) => {
       const connection = await runtime.sessionStore.getConnection();
-      return connection.revertFileEdit(action, filePath, editType, options);
+      const result = await connection.revertFileEdit(action, filePath, editType, options);
+      if (result.success) {
+        hasActiveRevert.value = action === 'revert';
+      }
+      return result;
     },
     restoreCheckpoint: async (messageIndex: number) => {
       const allMsgs = messages.value;
@@ -189,6 +215,7 @@
         newMap.delete(messageIndex);
         restoredCheckpoints.value = newMap;
         restoredAtIndex.value = null;
+        hasActiveRevert.value = false;
 
         const redoMsg = reapplyFailed > 0
           ? `${reapplied} Änderungen wiederhergestellt, ${reapplyFailed} fehlgeschlagen.`
@@ -270,6 +297,7 @@
         const newMap = new Map(restoredCheckpoints.value);
         newMap.set(messageIndex, successfulReverts);
         restoredCheckpoints.value = newMap;
+        hasActiveRevert.value = true;
       }
       restoredAtIndex.value = messageIndex;
 
@@ -507,6 +535,28 @@
     scrollToBottom(); // respects userScrolledUp
   });
 
+  // Auto-send queued message when AI finishes
+  watch(() => isBusy.value, (busy) => {
+    if (!busy && queuedMessage.value) {
+      const msg = queuedMessage.value;
+      queuedMessage.value = null;
+      void handleSubmit(msg);
+    }
+  });
+
+  function flushQueuedMessage() {
+    const s = session.value;
+    const msg = queuedMessage.value;
+    if (!s || !msg) return;
+    queuedMessage.value = null;
+    void s.interrupt();
+    setTimeout(() => void handleSubmit(msg), 300);
+  }
+
+  function dismissQueuedMessage() {
+    queuedMessage.value = null;
+  }
+
   onMounted(async () => {
     prevCount = messages.value.length;
     await nextTick();
@@ -563,7 +613,13 @@
   async function handleSubmit(content: string) {
     const s = session.value;
     let trimmed = (content || '').trim();
-    if (!s || (!trimmed && attachments.value.length === 0) || isBusy.value) return;
+    if (!s || (!trimmed && attachments.value.length === 0)) return;
+
+    // If chat is busy, queue the message instead of sending
+    if (isBusy.value) {
+      queuedMessage.value = trimmed;
+      return;
+    }
 
     // Separate file-reference pills from binary attachments
     const fileRefs = attachments.value.filter(a => a.isFileRef);
@@ -586,6 +642,23 @@
     } else if (fileRefs.length > 0) {
       const paths = fileRefs.map(f => `@${f.filePath}`).join(' ');
       trimmed = trimmed ? `${paths} ${trimmed}` : paths;
+    }
+
+    // If a revert is active, create a fresh session so the model starts clean
+    if (hasActiveRevert.value) {
+      hasActiveRevert.value = false;
+      restoredAtIndex.value = null;
+      restoredCheckpoints.value = new Map();
+      try {
+        const newSession = await runtime.sessionStore.createSession({ isExplicit: true });
+        userScrolledUp = false;
+        await newSession.send(trimmed || ' ', binaryAttachments);
+        attachments.value = [];
+        scrollToBottom(true);
+      } catch (e) {
+        console.error('[ChatPage] revert-restart send failed', e);
+      }
+      return;
     }
 
     try {
@@ -844,6 +917,78 @@
  /* */
   .inputContainer {
     padding: 8px 12px 12px;
+  }
+
+  .queued-message-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--vscode-foreground) 15%, transparent);
+    background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent);
+  }
+
+  .queued-message-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .queued-message-label {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #a78bfa;
+    flex-shrink: 0;
+  }
+
+  .queued-message-text {
+    font-size: 12px;
+    color: var(--vscode-foreground);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.8;
+  }
+
+  .queued-message-actions {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .queued-message-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--vscode-foreground);
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.15s, background 0.15s;
+  }
+
+  .queued-message-btn:hover {
+    opacity: 1;
+    background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+  }
+
+  .queued-message-btn.send-now:hover {
+    color: #22c55e;
+  }
+
+  .queued-message-btn.dismiss:hover {
+    color: #ef4444;
   }
 
  /* */

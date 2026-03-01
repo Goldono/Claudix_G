@@ -388,13 +388,24 @@ export class ClaudeAgentService implements IClaudeAgentService {
                     for await (const message of query) {
                         messageCount++;
  this.logService.info(` ← #${messageCount}: ${message.type}`);
-                        // Debug: dump all keys to find hidden rate limit data
+                        // Debug: dump ALL usage data from every message type
                         if (message.type === 'result') {
+                            const r = message as any;
                             this.logService.info(`    [RESULT] All keys: ${JSON.stringify(Object.keys(message))}`);
+                            this.logService.info(`    [RESULT.usage] = ${JSON.stringify(r.usage)}`);
+                            this.logService.info(`    [RESULT.modelUsage] = ${JSON.stringify(r.modelUsage)}`);
+                            this.logService.info(`    [RESULT.total_cost_usd] = ${JSON.stringify(r.total_cost_usd)}`);
                         } else if (message.type === 'assistant') {
-                            const extra = Object.keys(message).filter(k => !['type','message','parent_tool_use_id','error','uuid','session_id'].includes(k));
-                            if (extra.length > 0) {
-                                this.logService.info(`    [ASSISTANT] Extra keys: ${JSON.stringify(extra)}`);
+                            const a = message as any;
+                            this.logService.info(`    [ASSISTANT] All msg keys: ${JSON.stringify(Object.keys(a.message || {}))}`);
+                            this.logService.info(`    [ASSISTANT.message.usage] = ${JSON.stringify(a.message?.usage)}`);
+                        } else if (message.type === 'stream_event') {
+                            // Log first stream_event only to see its structure
+                            if (messageCount <= 3) {
+                                this.logService.info(`    [STREAM_EVENT] All keys: ${JSON.stringify(Object.keys(message))}`);
+                                const se = message as any;
+                                if (se.event) this.logService.info(`    [STREAM_EVENT.event] = ${JSON.stringify(se.event).slice(0, 500)}`);
+                                if (se.data) this.logService.info(`    [STREAM_EVENT.data] = ${JSON.stringify(se.data).slice(0, 500)}`);
                             }
                         }
 

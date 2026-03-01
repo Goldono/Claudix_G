@@ -28,6 +28,7 @@
           :cache-read-tokens="usageData?.cacheReadTokens ?? 0"
           :total-tokens="usageData?.totalTokens ?? 0"
           :context-window="usageData?.contextWindow ?? 200000"
+          :total-cost="usageData?.totalCost ?? 0"
         />
 
         <!-- Thinking Toggle Button -->
@@ -148,7 +149,7 @@ interface Props {
   hasInputContent?: boolean
   showProgress?: boolean
   progressPercentage?: number
-  usageData?: { inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number; totalTokens: number; contextWindow: number } | null
+  usageData?: { inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number; totalTokens: number; contextWindow: number; totalCost: number } | null
   thinkingLevel?: string
   permissionMode?: PermissionMode
   fullTextMode?: boolean

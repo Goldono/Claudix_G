@@ -450,6 +450,14 @@ export class Session {
         this.busy(true);
       }
     } else if (event?.type === 'result') {
+      // result event carries cumulative session usage + total cost
+      if (event.usage) {
+        this.updateUsage(event.usage);
+      }
+      if (typeof event.total_cost_usd === 'number') {
+        const current = this.usageData();
+        this.usageData({ ...current, totalCost: event.total_cost_usd });
+      }
       this.busy(false);
     }
   }
