@@ -68,6 +68,14 @@ const toolComponent = computed(() => {
     return McpTool;
   }
 
+  // Detect plan file writes → show as plan card instead of code view
+  if (name === 'Write') {
+    const filePath = (props.block.input as any)?.file_path || '';
+    if (filePath.replace(/\\/g, '/').includes('.claude/plans/') && filePath.endsWith('.md')) {
+      return ExitPlanModeTool;
+    }
+  }
+
   switch (name) {
     case 'Read':
       return ReadTool;

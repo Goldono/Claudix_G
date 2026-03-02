@@ -84,7 +84,7 @@ async function handleToggleRevert() {
       'write',
       {
         fileContents: content.value,
-        previousContents: null, // Assume new file for MVP
+        previousContents: null, // Backend uses pre-write cache automatically
       }
     );
     if (result.success) {

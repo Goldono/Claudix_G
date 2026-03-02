@@ -57,6 +57,13 @@ export interface IClaudeSdkService {
      * Interrupt ongoing query
      */
     interrupt(query: Query): Promise<void>;
+
+    /**
+     * Get the stored pre-write contents for a file path.
+     * Returns the content before Claude's Write overwrote it, or null if the file didn't exist.
+     * Returns undefined if no content was captured.
+     */
+    getPreWriteContents(filePath: string): string | null | undefined;
 }
 
 const VS_CODE_APPEND_PROMPT = `
@@ -74,7 +81,16 @@ const VS_CODE_APPEND_PROMPT = `
   The URL links should be relative paths from the root of  the user's workspace.
 
   ## User Selection Context
-  The user's IDE selection (if any) is included in the conversation context and marked with ide_selection tags. This represents code or text the user has highlighted in their editor and may or may not be relevant to their request.`;
+  The user's IDE selection (if any) is included in the conversation context and marked with ide_selection tags. This represents code or text the user has highlighted in their editor and may or may not be relevant to their request.
+
+  ## Plan Mode Behavior
+  IMPORTANT rules for plan mode in this VSCode extension:
+  - When saving plan files, ALWAYS save them to the PROJECT directory at \`.claude/plans/\` (relative to the workspace root), NOT to the user's home directory. Create the directory if it doesn't exist.
+  - After creating a plan and calling ExitPlanMode, do NOT ask the user if they want to leave plan mode or start implementation. The plan will be displayed in the chat with an "Execute Plan" button. The user will decide when to start by clicking the button or writing a message.
+  - Stay in plan mode after presenting the plan. Only exit plan mode when the user explicitly requests execution.
+  - Plan files written to the default location (~/.claude/plans/) will be automatically copied to the project directory by the extension.
+  - NEVER present Yes/No choices or ask "Do you want to proceed?" after creating a plan or calling ExitPlanMode. Just call ExitPlanMode silently and let the UI handle the rest.
+  - CRITICAL: If ExitPlanMode fails with "No plan file found at <path>", you MUST immediately and silently write the plan to that exact <path> and call ExitPlanMode again. Do NOT show any error to the user.`;
 
 /**
  * ClaudeSdkService implementation
@@ -82,12 +98,27 @@ const VS_CODE_APPEND_PROMPT = `
 export class ClaudeSdkService implements IClaudeSdkService {
     readonly _serviceBrand: undefined;
 
+    /**
+     * Stores the file contents BEFORE a Write tool overwrites them.
+     * Key = absolute file path, Value = previous file content (or null if file didn't exist).
+     */
+    private readonly preWriteContentsMap = new Map<string, string | null>();
+
     constructor(
         private readonly context: vscode.ExtensionContext,
         @ILogService private readonly logService: ILogService,
         @IConfigurationService private readonly configService: IConfigurationService
     ) {
         this.logService.info('[ClaudeSdkService] Initialized');
+    }
+
+    /**
+     * Get the stored pre-write contents for a file path.
+     * Returns the content that was in the file before Claude's Write tool overwrote it.
+     * Returns undefined if no pre-write content was captured for this path.
+     */
+    getPreWriteContents(filePath: string): string | null | undefined {
+        return this.preWriteContentsMap.get(filePath);
     }
 
     /**
@@ -164,22 +195,131 @@ export class ClaudeSdkService implements IClaudeSdkService {
 
             // Hooks
             hooks: {
-                // PreToolUse: Before tool execution
+                // PreToolUse: Before tool execution — capture file contents before Write
                 PreToolUse: [{
                     matcher: "Edit|Write|MultiEdit",
                     hooks: [async (input, toolUseID, options) => {
                         if ('tool_name' in input) {
                             this.logService.info(`[Hook] PreToolUse: ${input.tool_name}`);
                         }
+                        // Capture current file contents BEFORE Write overwrites the file
+                        if ('tool_name' in input && input.tool_name === 'Write' && 'tool_input' in input) {
+                            const toolInput = input.tool_input as Record<string, unknown>;
+                            const filePath = toolInput.file_path as string | undefined;
+                            if (filePath) {
+                                try {
+                                    const content = fs.readFileSync(filePath, 'utf-8');
+                                    this.preWriteContentsMap.set(filePath, content);
+                                    this.logService.info(`[Hook] Captured pre-write contents for: ${filePath} (${content.length} chars)`);
+                                } catch {
+                                    // File doesn't exist yet — mark as null (new file)
+                                    this.preWriteContentsMap.set(filePath, null);
+                                    this.logService.info(`[Hook] File does not exist yet (new file): ${filePath}`);
+                                }
+                            }
+                        }
                         return { continue: true };
                     }]
                 }] as HookCallbackMatcher[],
-                // PostToolUse: After tool execution
+                // PostToolUse: After tool execution — auto-copy plan files to project
                 PostToolUse: [{
                     matcher: "Edit|Write|MultiEdit",
                     hooks: [async (input, toolUseID, options) => {
                         if ('tool_name' in input) {
                             this.logService.info(`[Hook] PostToolUse: ${input.tool_name}`);
+                        }
+                        // Auto-copy plan files from ~/.claude/plans/ to project .claude/plans/
+                        if ('tool_name' in input && input.tool_name === 'Write' && 'tool_input' in input) {
+                            const toolInput = input.tool_input as Record<string, unknown>;
+                            const filePath = toolInput.file_path as string | undefined;
+                            if (filePath) {
+                                const normalized = filePath.replace(/\\/g, '/');
+                                const homeDir = require('os').homedir().replace(/\\/g, '/');
+                                const homePlansDir = `${homeDir}/.claude/plans/`;
+                                if (normalized.startsWith(homePlansDir) && normalized.endsWith('.md')) {
+                                    try {
+                                        const fileName = require('path').basename(filePath);
+                                        const projectPlansDir = require('path').join(cwd, '.claude', 'plans');
+                                        if (!fs.existsSync(projectPlansDir)) {
+                                            fs.mkdirSync(projectPlansDir, { recursive: true });
+                                        }
+                                        const destPath = require('path').join(projectPlansDir, fileName);
+                                        fs.copyFileSync(filePath, destPath);
+                                        this.logService.info(`[Hook] Auto-copied plan to project: ${destPath}`);
+                                    } catch (err: any) {
+                                        this.logService.warn(`[Hook] Failed to copy plan to project: ${err.message}`);
+                                    }
+                                }
+                            }
+                        }
+                        return { continue: true };
+                    }]
+                }] as HookCallbackMatcher[],
+                // PostToolUseFailure: Auto-fix ExitPlanMode "No plan file found" errors
+                PostToolUseFailure: [{
+                    matcher: "ExitPlanMode",
+                    hooks: [async (input, toolUseID, options) => {
+                        if ('error' in input && typeof input.error === 'string') {
+                            const match = input.error.match(/No plan file found at (.+\.md)/);
+                            if (match) {
+                                const expectedPath = match[1].trim();
+                                this.logService.info(`[Hook] ExitPlanMode failed — expected path: ${expectedPath}`);
+
+                                // Find the most recently written plan file from our preWriteContentsMap or project dir
+                                let planContent: string | null = null;
+
+                                // Strategy 1: Check preWriteContentsMap for any .plan.md or .md in .claude/plans
+                                for (const [filePath, contents] of this.preWriteContentsMap.entries()) {
+                                    // The preWriteContentsMap stores PREVIOUS contents, but the Write tool_input has the NEW content
+                                    // We need the actual file content that was written, not what was before
+                                    if (filePath.replace(/\\/g, '/').includes('.claude/plans/') && filePath.endsWith('.md')) {
+                                        try {
+                                            planContent = fs.readFileSync(filePath, 'utf-8');
+                                            this.logService.info(`[Hook] Found plan content from: ${filePath}`);
+                                            break;
+                                        } catch { /* ignore */ }
+                                    }
+                                }
+
+                                // Strategy 2: Scan project .claude/plans/ for the latest .md file
+                                if (!planContent) {
+                                    try {
+                                        const projectPlansDir = require('path').join(cwd, '.claude', 'plans');
+                                        if (fs.existsSync(projectPlansDir)) {
+                                            const files = fs.readdirSync(projectPlansDir)
+                                                .filter((f: string) => f.endsWith('.md'))
+                                                .map((f: string) => ({
+                                                    name: f,
+                                                    mtime: fs.statSync(require('path').join(projectPlansDir, f)).mtimeMs
+                                                }))
+                                                .sort((a: any, b: any) => b.mtime - a.mtime);
+                                            if (files.length > 0) {
+                                                const latestPlan = require('path').join(projectPlansDir, files[0].name);
+                                                planContent = fs.readFileSync(latestPlan, 'utf-8');
+                                                this.logService.info(`[Hook] Found latest plan from project dir: ${latestPlan}`);
+                                            }
+                                        }
+                                    } catch { /* ignore */ }
+                                }
+
+                                if (planContent) {
+                                    try {
+                                        const dir = require('path').dirname(expectedPath);
+                                        if (!fs.existsSync(dir)) {
+                                            fs.mkdirSync(dir, { recursive: true });
+                                        }
+                                        fs.writeFileSync(expectedPath, planContent, 'utf-8');
+                                        this.logService.info(`[Hook] Auto-placed plan at SDK path: ${expectedPath}`);
+                                        // Suppress the error and tell Claude to retry
+                                        return {
+                                            suppressOutput: true,
+                                            systemMessage: 'The plan file has been automatically placed at the correct location. Call ExitPlanMode again now — it will succeed this time. Do NOT mention any error to the user.'
+                                        };
+                                    } catch (err: any) {
+                                        this.logService.warn(`[Hook] Failed to auto-place plan: ${err.message}`);
+                                    }
+                                }
+                            }
                         }
                         return { continue: true };
                     }]

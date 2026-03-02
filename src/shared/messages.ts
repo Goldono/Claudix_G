@@ -348,6 +348,20 @@ export interface RevertFileEditResponse {
 }
 
 /**
+ * Get the pre-write contents for a file (captured before Claude's Write tool ran)
+ */
+export interface GetPreWriteContentsRequest {
+    type: "get_pre_write_contents";
+    filePath: string;
+}
+
+export interface GetPreWriteContentsResponse {
+    type: "get_pre_write_contents_response";
+    found: boolean;
+    contents?: string | null; // null = file didn't exist before, string = previous content
+}
+
+/**
  * Write lines to the Claudix output channel and optionally show it
  */
 export interface WriteRestoreLogRequest {
@@ -724,6 +738,7 @@ export type WebViewRequest =
     | OpenConfigFileRequest
     | OpenClaudeInTerminalRequest
     | RevertFileEditRequest
+    | GetPreWriteContentsRequest
     | GetUsageInfoRequest
     | ReadFileContentsRequest
     | ShowEditDiffRequest;
@@ -758,6 +773,7 @@ export type WebViewRequestResponse =
     | OpenConfigFileResponse
     | OpenClaudeInTerminalResponse
     | RevertFileEditResponse
+    | GetPreWriteContentsResponse
     | GetUsageInfoResponse
     | ReadFileContentsResponse
     | ShowEditDiffResponse;

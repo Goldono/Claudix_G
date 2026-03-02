@@ -11,6 +11,9 @@ Antworte IMMER auf Deutsch. Technische Begriffe und Code-Bezeichner bleiben im O
 
 ---
 
+### REVERT-TEST R4-1: Oben (nach Sprache & Kommunikation)
+Erster Test-Absatz aus Runde 4. Steht ganz oben in der Datei, direkt nach dem Kommunikations-Abschnitt. Hiermit wird geprueft, ob die neue Rueckgaengig-Funktion (ohne Git, mit gespeichertem Dateiinhalt) korrekt funktioniert.
+
 ## GRUNDLEGENDES VERHALTEN BEI NEUEN AUFGABEN
 
 ### REGEL 1: Ganzheitliches Projektverständnis
@@ -35,6 +38,9 @@ Dies ist der erste Test-Absatz, der zum Testen der Revert-Funktion eingefugt wur
 Bewerte jede Aufgabe vor Beginn:
 - **Quick Fix:** (1-2 Dateien, z.B. Tippfehler, minimale UI-Anpassung). Nach kurzer Klärung direkt umsetzen.
 - **Komplexe Aufgabe:** (3+ Dateien, neue Architektur, unklare Anforderungen). Rufe SOFORT und zwingend das **`EnterPlanMode`-Tool** auf, BEVOR du irgendetwas implementierst. Warte NICHT darauf, dass der User manuell in den Plan-Modus wechselt — du wechselst eigenständig. Danach folge dem **DEEP PLANNING WORKFLOW** (siehe unten).
+
+### REVERT-TEST R5-1: Nach Regel 3 (oberes Drittel)
+Erster Test-Absatz aus Runde 5. Steht direkt nach Regel 3, noch im oberen Bereich der Datei. Dieser Absatz sollte nach erfolgreichem Rueckgaengig-Machen wieder verschwunden sein.
 
 ---
 
@@ -98,6 +104,9 @@ Hier ist der zweite neue Test-Absatz. Er sitzt zwischen Regel 8 und Regel 9, als
 - **Bei einem fehlgeschlagenen Edit:** Datei sofort neu lesen, dann erst erneut versuchen. NIEMALS denselben String ein zweites Mal blind verwenden.
 - **Kurzformel:** Lesen → Exakten Text kopieren → Ersetzen. Immer in dieser Reihenfolge.
 
+### REVERT-TEST R5-2: Nach Regel 9 (Mitte)
+Zweiter Test-Absatz aus Runde 5. Platziert nach der Datei-Lese-Regel, mitten in der Datei. Dient zum Testen, ob das Rueckgaengig-Machen in der Dateimitte zuverlaessig funktioniert.
+
 ### NEUER TEST-ABSATZ Z2: Zwischen Regel 9 und Regel 10
 Zweiter neuer Test-Absatz (Runde 3). Platziert zwischen der Datei-Lese-Regel und der Kommunikations-Regel, also mitten im Herzen der Datei. Wenn dieser Absatz nach dem Zuruecksetzen weg ist, funktioniert der Revert in der Dateimitte korrekt.
 
@@ -160,6 +169,9 @@ Siebter und letzter Test-Absatz. Er sitzt zwischen zwei Regeln weiter unten in d
 4. **Konsistenz geht vor Perfektion:** Ein Ablauf, der genauso funktioniert wie die bestehenden, ist BESSER als ein theoretisch "schönerer" Ablauf, der sich anders anfühlt. Der User soll die App als einheitliches Ganzes erleben.
 
 **Kurzformel:** Erst schauen was es schon gibt → dann darauf aufbauen → nur wenn wirklich NICHTS passt, etwas Neues erfinden.
+
+### REVERT-TEST R4-2: Mitte (nach Regel 13)
+Zweiter Test-Absatz aus Runde 4. Sitzt in der Mitte der Datei, zwischen Regel 13 und dem Planungs-Abschnitt. Wenn dieser Text nach dem Rueckgaengig-Machen verschwunden ist, funktioniert die neue Methode auch in der Dateimitte.
 
 ---
 
@@ -292,6 +304,9 @@ todos:
 ---
 
 ## ARCHITEKTUR-KONTEXT
+
+### REVERT-TEST R5-3: Vor dem Workflow-System (unteres Drittel)
+Dritter und letzter Test-Absatz aus Runde 5. Sitzt am Anfang des Architektur-Abschnitts, also im unteren Bereich der Datei. Alle drei R5-Absaetze zusammen decken oben, mitte und unten ab.
 
 ### Workflow-System
 - Workflows werden durch Generatoren erzeugt (`3_10_Hauptslave`, `3_11_Unterslave`).
@@ -463,6 +478,9 @@ className="rounded-xl border border-border bg-card p-4"
   </table>
 </div>
 ```
+
+### REVERT-TEST R4-3: Unten (vor Baum-Ansichten)
+Dritter und letzter Test-Absatz aus Runde 4. Steht weit unten in der Datei, kurz vor den Baum-Ansichten. Damit sind alle drei Positionen abgedeckt: oben, mitte, unten. Wenn alle drei nach dem Rueckgaengig-Machen weg sind, funktioniert alles einwandfrei.
 
 ### Baum-Ansichten (Tree)
 ```tsx

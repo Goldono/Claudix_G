@@ -354,6 +354,11 @@ export class ClaudeAgentService implements IClaudeAgentService {
                 async (toolName, input, options) => {
  // ： RPC WebView
  this.logService.info(`🔧 : ${toolName}`);
+                    // Auto-approve plan mode tools — no permission dialog needed
+                    if (toolName === 'ExitPlanMode' || toolName === 'EnterPlanMode') {
+                        this.logService.info(`[Permission] Auto-approved: ${toolName}`);
+                        return { behavior: 'allow' as const };
+                    }
                     return this.requestToolPermission(
                         channelId,
                         toolName,
@@ -706,6 +711,15 @@ export class ClaudeAgentService implements IClaudeAgentService {
 
             case "revert_file_edit":
                 return handleRevertFileEdit(request as any, this.handlerContext);
+
+            case "get_pre_write_contents": {
+                const pwReq = request as any;
+                const contents = this.sdkService.getPreWriteContents(pwReq.filePath);
+                if (contents !== undefined) {
+                    return { type: 'get_pre_write_contents_response', found: true, contents };
+                }
+                return { type: 'get_pre_write_contents_response', found: false };
+            }
 
             case "write_restore_log": {
                 const logReq = request as any;

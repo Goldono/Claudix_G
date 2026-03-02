@@ -1061,22 +1061,41 @@ export async function handleRevertFileEdit(
                     await fs.promises.writeFile(absolutePath, previousContents, 'utf-8');
                     logService.info(`[Restore] OK   ${shortPath} (restored from previousContents)`);
                 } else {
-                    // No previous contents — try git to restore original state
-                    const gitRestored = await tryGitRestore(absolutePath, cwd, logService);
-                    if (gitRestored === 'restored') {
-                        logService.info(`[Restore] OK   ${shortPath} (restored via git)`);
-                    } else if (gitRestored === 'untracked') {
-                        // File was new (not in git) → delete it
-                        try {
-                            await fs.promises.unlink(absolutePath);
-                            logService.info(`[Restore] OK   ${shortPath} (deleted — was new file)`);
-                        } catch {
-                            logService.warn(`[Restore] FAIL ${shortPath}: could not delete new file`);
-                            return { type: 'revert_file_edit_response', success: false, error: `could not delete ${shortPath}` };
+                    // Try pre-write cache first (captured by PreToolUse hook)
+                    const cachedContents = context.sdkService.getPreWriteContents(absolutePath);
+                    if (cachedContents !== undefined) {
+                        if (cachedContents === null) {
+                            // File didn't exist before Write → delete it
+                            try {
+                                await fs.promises.unlink(absolutePath);
+                                logService.info(`[Restore] OK   ${shortPath} (deleted — was new file, from cache)`);
+                            } catch {
+                                logService.warn(`[Restore] FAIL ${shortPath}: could not delete new file`);
+                                return { type: 'revert_file_edit_response', success: false, error: `could not delete ${shortPath}` };
+                            }
+                        } else {
+                            // Restore from cached pre-write contents
+                            await fs.promises.writeFile(absolutePath, cachedContents, 'utf-8');
+                            logService.info(`[Restore] OK   ${shortPath} (restored from pre-write cache)`);
                         }
                     } else {
-                        logService.warn(`[Restore] FAIL ${shortPath}: git restore failed`);
-                        return { type: 'revert_file_edit_response', success: false, error: `git restore failed for ${shortPath}` };
+                        // Fallback: try git to restore original state
+                        const gitRestored = await tryGitRestore(absolutePath, cwd, logService);
+                        if (gitRestored === 'restored') {
+                            logService.info(`[Restore] OK   ${shortPath} (restored via git)`);
+                        } else if (gitRestored === 'untracked') {
+                            // File was new (not in git) → delete it
+                            try {
+                                await fs.promises.unlink(absolutePath);
+                                logService.info(`[Restore] OK   ${shortPath} (deleted — was new file)`);
+                            } catch {
+                                logService.warn(`[Restore] FAIL ${shortPath}: could not delete new file`);
+                                return { type: 'revert_file_edit_response', success: false, error: `could not delete ${shortPath}` };
+                            }
+                        } else {
+                            logService.warn(`[Restore] FAIL ${shortPath}: git restore failed`);
+                            return { type: 'revert_file_edit_response', success: false, error: `git restore failed for ${shortPath}` };
+                        }
                     }
                 }
             } else {
@@ -1107,10 +1126,17 @@ async function tryGitRestore(
     logService: { info: (m: string) => void; warn: (m: string) => void }
 ): Promise<'restored' | 'untracked' | 'error'> {
     const { execFileSync } = require('child_process') as typeof import('child_process');
+
+    // Check if the file is outside the repository (e.g. different drive or parent directory)
+    const relPath = path.relative(cwd, absolutePath).replace(/\\/g, '/');
+    if (relPath.startsWith('..') || path.isAbsolute(relPath)) {
+        logService.info(`[Restore] File is outside repository → treating as untracked: ${relPath}`);
+        return 'untracked';
+    }
+
     try {
         // Check if the file is tracked by git
-        const relPath = path.relative(cwd, absolutePath).replace(/\\/g, '/');
-        const lsResult = execFileSync('git', ['ls-files', '--error-unmatch', relPath], {
+        execFileSync('git', ['ls-files', '--error-unmatch', relPath], {
             cwd,
             encoding: 'utf-8',
             stdio: ['pipe', 'pipe', 'pipe'],
@@ -1124,7 +1150,7 @@ async function tryGitRestore(
         return 'restored';
     } catch (err: any) {
         // git ls-files --error-unmatch exits with 1 if file is untracked
-        if (err.status === 1 || (err.stderr && err.stderr.includes('not in'))) {
+        if (err.status === 1 || (err.stderr && (err.stderr.includes('not in') || err.stderr.includes('outside repository')))) {
             return 'untracked';
         }
         logService.warn(`[Restore] git error: ${err.message}`);

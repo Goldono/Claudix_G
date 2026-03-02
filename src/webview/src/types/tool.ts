@@ -19,6 +19,10 @@ export interface ToolContext {
   restoredAtIndex?: number | null;
   editAndRestart?: (messageIndex: number, newContent: string) => Promise<void>;
   showNotification?: (message: string, severity: 'info' | 'warning' | 'error') => Promise<any>;
+  /** Send a user message to the active Claude session (used by "Execute Plan" button) */
+  sendUserMessage?: (message: string) => void;
+  /** Write content to a file (used for in-chat plan editing) */
+  writeFile?: (filePath: string, content: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 /**

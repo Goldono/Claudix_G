@@ -202,6 +202,9 @@ export abstract class BaseTransport {
   ): Promise<any> {
     return this.sendRequest({ type: "revert_file_edit", action, filePath, editType, ...options } as any);
   }
+  getPreWriteContents(filePath: string): Promise<any> {
+    return this.sendRequest({ type: "get_pre_write_contents", filePath } as any);
+  }
   getUsageInfo(): Promise<any> {
     return this.sendRequest({ type: "get_usage_info" } as any);
   }

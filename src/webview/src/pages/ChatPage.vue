@@ -407,6 +407,16 @@
     showNotification: async (message, severity) => {
       return runtime.appContext.showNotification?.(message, severity);
     },
+    sendUserMessage: (message: string) => {
+      void handleSubmit(message);
+    },
+    writeFile: async (filePath: string, content: string) => {
+      const connection = await runtime.sessionStore.getConnection();
+      return connection.revertFileEdit('reapply', filePath, 'write', {
+        fileContents: content,
+        previousContents: null,
+      });
+    },
   }));
 
  // useSessionStore（bewährtes Pattern aus der alten Sessions-Seite）
