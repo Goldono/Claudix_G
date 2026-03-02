@@ -51,6 +51,7 @@
       :thinking-level="thinkingLevel"
       :permission-mode="permissionMode"
       :full-text-mode="fullTextMode"
+      :is-in-plan-mode="isInPlanMode"
       @submit="handleSubmit"
       @stop="handleStop"
       @add-attachment="handleAddFiles"
@@ -58,6 +59,7 @@
       @full-text-toggle="() => emit('fullTextToggle')"
       @mode-select="(mode) => emit('modeSelect', mode)"
       @model-select="(modelId) => emit('modelSelect', modelId)"
+      @exit-plan-mode="() => emit('exitPlanMode')"
     />
 
     <!-- Slash Command Dropdown -->
@@ -162,6 +164,7 @@ interface Props {
   thinkingLevel?: string
   permissionMode?: PermissionMode
   fullTextMode?: boolean
+  isInPlanMode?: boolean
 }
 
 interface Emits {
@@ -178,6 +181,7 @@ interface Emits {
   (e: 'modeSelect', mode: PermissionMode): void
   (e: 'modelSelect', modelId: string): void
   (e: 'setAttachments', attachments: AttachmentItem[]): void
+  (e: 'exitPlanMode'): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -190,7 +194,8 @@ const props = withDefaults(defineProps<Props>(), {
   conversationWorking: false,
   attachments: () => [],
   thinkingLevel: 'default_on',
-  permissionMode: 'default'
+  permissionMode: 'default',
+  isInPlanMode: false
 })
 
 const emit = defineEmits<Emits>()

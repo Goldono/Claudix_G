@@ -355,9 +355,56 @@ export class ClaudeAgentService implements IClaudeAgentService {
  // ： RPC WebView
  this.logService.info(`🔧 : ${toolName}`);
                     // Auto-approve plan mode tools — no permission dialog needed
-                    if (toolName === 'ExitPlanMode' || toolName === 'EnterPlanMode') {
+                    if (toolName === 'EnterPlanMode') {
                         this.logService.info(`[Permission] Auto-approved: ${toolName}`);
-                        return { behavior: 'allow' as const };
+                        return { behavior: 'allow' as const, updatedInput: input };
+                    }
+                    if (toolName === 'ExitPlanMode') {
+                        this.logService.info(`[Permission] Auto-approved: ${toolName}`);
+                        // Pre-copy: ensure plan file exists at ~/.claude/plans/ before SDK checks
+                        try {
+                            const os = require('os');
+                            const fs = require('fs');
+                            const path = require('path');
+                            const homePlansDir = path.join(os.homedir(), '.claude', 'plans');
+                            const projectPlansDir = path.join(cwd, '.claude', 'plans');
+                            if (fs.existsSync(projectPlansDir)) {
+                                // Find latest plan in project
+                                const planFiles = fs.readdirSync(projectPlansDir)
+                                    .filter((f: string) => f.endsWith('.md'))
+                                    .map((f: string) => ({ name: f, mtime: fs.statSync(path.join(projectPlansDir, f)).mtimeMs }))
+                                    .sort((a: any, b: any) => b.mtime - a.mtime);
+                                if (planFiles.length > 0) {
+                                    const latestPlan = path.join(projectPlansDir, planFiles[0].name);
+                                    const planContent = fs.readFileSync(latestPlan, 'utf-8');
+                                    // Copy to ALL .md files in ~/.claude/plans/ that are empty or don't exist
+                                    if (fs.existsSync(homePlansDir)) {
+                                        const homeFiles = fs.readdirSync(homePlansDir).filter((f: string) => f.endsWith('.md'));
+                                        for (const hf of homeFiles) {
+                                            const hp = path.join(homePlansDir, hf);
+                                            try {
+                                                const stat = fs.statSync(hp);
+                                                // Overwrite files that are very small (likely empty placeholders)
+                                                if (stat.size < 50) {
+                                                    fs.writeFileSync(hp, planContent, 'utf-8');
+                                                    this.logService.info(`[Permission] Pre-copied plan to: ${hp}`);
+                                                }
+                                            } catch { /* ignore */ }
+                                        }
+                                    }
+                                    // Also write to ~/.claude/plans/ with same name as project file
+                                    if (!fs.existsSync(homePlansDir)) {
+                                        fs.mkdirSync(homePlansDir, { recursive: true });
+                                    }
+                                    const destPath = path.join(homePlansDir, planFiles[0].name);
+                                    fs.writeFileSync(destPath, planContent, 'utf-8');
+                                    this.logService.info(`[Permission] Pre-copied plan to home: ${destPath}`);
+                                }
+                            }
+                        } catch (err: any) {
+                            this.logService.warn(`[Permission] Pre-copy failed: ${err.message}`);
+                        }
+                        return { behavior: 'allow' as const, updatedInput: input };
                     }
                     return this.requestToolPermission(
                         channelId,

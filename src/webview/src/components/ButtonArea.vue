@@ -14,6 +14,18 @@
           :selected-model="selectedModel"
           @model-select="(modelId) => emit('modelSelect', modelId)"
         />
+
+        <!-- Plan Mode Indicator -->
+        <div
+          v-if="isInPlanMode"
+          class="plan-mode-badge"
+          @click="emit('exitPlanMode')"
+          title="Plan-Modus aktiv — Klicken zum Verlassen"
+        >
+          <span class="codicon codicon-tasklist plan-badge-icon"></span>
+          <span class="plan-badge-label">Plan</span>
+          <span class="codicon codicon-close plan-badge-close"></span>
+        </div>
       </div>
 
       <!-- Right Section: Token Indicator + Action Buttons -->
@@ -153,6 +165,7 @@ interface Props {
   thinkingLevel?: string
   permissionMode?: PermissionMode
   fullTextMode?: boolean
+  isInPlanMode?: boolean
 }
 
 interface Emits {
@@ -164,6 +177,7 @@ interface Emits {
   (e: 'fullTextToggle'): void
   (e: 'modeSelect', mode: PermissionMode): void
   (e: 'modelSelect', modelId: string): void
+  (e: 'exitPlanMode'): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -176,7 +190,8 @@ const props = withDefaults(defineProps<Props>(), {
   progressPercentage: 48.7,
   thinkingLevel: 'default_on',
   permissionMode: 'default',
-  fullTextMode: false
+  fullTextMode: false,
+  isInPlanMode: false
 })
 
 const emit = defineEmits<Emits>()
@@ -411,6 +426,46 @@ function handleCommandKeydown(event: KeyboardEvent) {
   outline-offset: 1px;
 }
 
+
+/* Plan Mode Badge */
+.plan-mode-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px 1px 4px;
+  background-color: color-mix(in srgb, var(--vscode-textLink-foreground) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground) 30%, transparent);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.plan-mode-badge:hover {
+  background-color: color-mix(in srgb, var(--vscode-textLink-foreground) 25%, transparent);
+}
+
+.plan-badge-icon {
+  font-size: 11px;
+  color: var(--vscode-textLink-foreground);
+}
+
+.plan-badge-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--vscode-textLink-foreground);
+}
+
+.plan-badge-close {
+  font-size: 10px;
+  color: var(--vscode-textLink-foreground);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.plan-mode-badge:hover .plan-badge-close {
+  opacity: 1;
+}
 
 .codicon-modifier-spin {
   animation: spin 1s linear infinite;

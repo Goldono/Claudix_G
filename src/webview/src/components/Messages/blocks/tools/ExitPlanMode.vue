@@ -4,7 +4,14 @@
     :is-custom-layout="true"
   >
     <template #custom>
-      <div class="plan-card">
+      <!-- Minimal display for actual ExitPlanMode tool (not Write-routed plan card) -->
+      <div v-if="!isWriteRouted" class="plan-exit-badge">
+        <span class="codicon codicon-check plan-exit-icon"></span>
+        <span class="plan-exit-label">Plan-Modus verlassen</span>
+      </div>
+
+      <!-- Full plan card for Write-routed plan files -->
+      <div v-else class="plan-card">
         <!-- Header -->
         <div class="plan-header">
           <span class="codicon codicon-tasklist plan-icon"></span>
@@ -88,6 +95,9 @@ const executed = ref(false);
 const isEditing = ref(false);
 const saving = ref(false);
 const contentEl = ref<HTMLElement>();
+
+// Detect if this is a Write-routed plan card (full display) or actual ExitPlanMode (minimal)
+const isWriteRouted = computed(() => !!props.toolUse?.input?.file_path);
 
 // File path (available when routed from Write tool)
 const filePath = computed(() => {
@@ -240,6 +250,28 @@ function tableToMd(table: HTMLElement): string {
 </script>
 
 <style scoped>
+/* Minimal exit badge (shown for actual ExitPlanMode tool) */
+.plan-exit-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background-color: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 25%, transparent);
+  border-radius: 4px;
+  font-size: 0.8em;
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.plan-exit-icon {
+  font-size: 12px;
+}
+
+.plan-exit-label {
+  font-weight: 500;
+}
+
+/* Full plan card (shown for Write-routed plan files) */
 .plan-card {
   display: flex;
   flex-direction: column;

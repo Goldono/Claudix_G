@@ -96,6 +96,7 @@
             :attachments="attachments"
             :thinking-level="session?.thinkingLevel.value"
             :permission-mode="session?.permissionMode.value"
+            :is-in-plan-mode="isInPlanMode"
             :selected-model="session?.modelSelection.value"
             :full-text-mode="fullTextMode"
             @submit="handleSubmit"
@@ -109,6 +110,7 @@
             @full-text-toggle="fullTextMode = !fullTextMode"
             @mode-select="handleModeSelect"
             @model-select="handleModelSelect"
+            @exit-plan-mode="handleExitPlanMode"
           />
         </div>
       <!-- </div> -->
@@ -526,6 +528,59 @@
   const permissionMode = computed(
     () => session.value?.permissionMode.value ?? 'default'
   );
+
+  // Manual override for plan mode (set to true when badge X is clicked)
+  const planModeManualExit = ref(false);
+  // Track how many EnterPlanMode calls existed when manual exit was triggered
+  const exitAtEnterCount = ref(-1);
+
+  // Count EnterPlanMode calls in messages (helper)
+  function countEnterPlanModes(): number {
+    let count = 0;
+    const msgs = messages.value;
+    for (const msg of msgs) {
+      const content = msg?.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const wrapper of content) {
+        if (wrapper?.content?.type === 'tool_use' && wrapper.content.name === 'EnterPlanMode') {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  // Detect plan mode by scanning messages for EnterPlanMode/ExitPlanMode tool calls
+  const isInPlanMode = computed(() => {
+    const msgs = messages.value;
+    // Find the last plan-relevant tool call
+    let lastEnterPlanCount = 0;
+    let inPlan = false;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const content = msgs[i]?.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const wrapper of content) {
+        const block = wrapper?.content;
+        if (block?.type === 'tool_use') {
+          if (block.name === 'ExitPlanMode') return false;
+          if (block.name === 'EnterPlanMode') {
+            inPlan = true;
+            break;
+          }
+        }
+      }
+      if (inPlan) break;
+    }
+    if (!inPlan) return false;
+    // Check manual exit: only honor if no NEW EnterPlanMode since the exit
+    if (planModeManualExit.value) {
+      const currentCount = countEnterPlanModes();
+      if (currentCount <= exitAtEnterCount.value) return false;
+      // A new EnterPlanMode appeared since manual exit → reset
+      planModeManualExit.value = false;
+    }
+    return true;
+  });
   const permissionRequests = computed(
     () => session.value?.permissionRequests.value ?? []
   );
@@ -830,6 +885,17 @@
     if (!s) return;
 
     await s.setModel({ value: modelId });
+  }
+
+  async function handleExitPlanMode() {
+    // Immediately hide the badge
+    exitAtEnterCount.value = countEnterPlanModes();
+    planModeManualExit.value = true;
+    // Silently switch permission mode back — no chat message needed
+    const s = session.value;
+    if (s) {
+      await s.setPermissionMode('bypassPermissions' as PermissionMode);
+    }
   }
 
   function handleStop() {
