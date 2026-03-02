@@ -450,10 +450,9 @@ export class Session {
         this.busy(true);
       }
     } else if (event?.type === 'result') {
-      // result event carries cumulative session usage + total cost
-      if (event.usage) {
-        this.updateUsage(event.usage);
-      }
+      // result.usage is CUMULATIVE across the entire session — do NOT use it
+      // for the context gauge (which must reflect the per-message context size).
+      // Only take the cost from the result event.
       if (typeof event.total_cost_usd === 'number') {
         const current = this.usageData();
         this.usageData({ ...current, totalCost: event.total_cost_usd });
