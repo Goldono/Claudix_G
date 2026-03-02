@@ -201,8 +201,22 @@
         redoLogLines.push(`[Restore] Re-apply: ${savedEdits.length} edits to re-apply`);
         redoLogLines.push(`[Restore] ────────────────────────────────────────────`);
 
+        // Find files that have a Write re-apply — those overwrite everything,
+        // so Edit re-applies for the same file can be skipped.
+        const filesWithWriteReapply = new Set<string>();
+        for (const edit of savedEdits) {
+          if (edit.editType === 'write') filesWithWriteReapply.add(edit.filePath);
+        }
+
         for (const edit of savedEdits) {
           const shortPath = edit.filePath.replace(/\\/g, '/').split('/').slice(-3).join('/');
+
+          // Skip Edit re-applies for files that have a Write re-apply (Write overwrites everything)
+          if (edit.editType === 'edit' && filesWithWriteReapply.has(edit.filePath)) {
+            reapplied++;
+            continue;
+          }
+
           try {
             const result = await conn.revertFileEdit('reapply', edit.filePath, edit.editType, {
               oldString: edit.oldString,
@@ -308,9 +322,21 @@
       logLines.push(`[Restore] Checkpoint restore: ${editsToRevert.length} edits to revert`);
       logLines.push(`[Restore] ────────────────────────────────────────────`);
 
+      // Track files that were fully reverted by a Write revert (full file reset).
+      // Subsequent Edit reverts for the same file can be skipped — the Write already restored the whole file.
+      const writeRevertedFiles = new Set<string>();
+
       for (let i = editsToRevert.length - 1; i >= 0; i--) {
         const edit = editsToRevert[i];
         const shortPath = edit.filePath.replace(/\\/g, '/').split('/').slice(-3).join('/');
+
+        // Skip Edit reverts for files already fully restored by a Write revert
+        if (edit.editType === 'edit' && writeRevertedFiles.has(edit.filePath)) {
+          reverted++;
+          successfulReverts.unshift(edit);
+          continue;
+        }
+
         try {
           const result = await connection.revertFileEdit('revert', edit.filePath, edit.editType, {
             oldString: edit.oldString,
@@ -321,6 +347,10 @@
           if (result.success) {
             reverted++;
             successfulReverts.unshift(edit);
+            // Mark file as fully reverted if this was a Write revert
+            if (edit.editType === 'write') {
+              writeRevertedFiles.add(edit.filePath);
+            }
           } else {
             failed++;
             failedFiles.push(shortPath);
