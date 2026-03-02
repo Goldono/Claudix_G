@@ -24,6 +24,7 @@ export interface ILogService {
 	warn(message: string, ...args: any[]): void;
 	error(message: string | Error, ...args: any[]): void;
 	setLevel(level: LogLevel): void;
+	show(): void;
 }
 
 export class LogService implements ILogService {
@@ -72,6 +73,10 @@ export class LogService implements ILogService {
 				this.outputChannel.appendLine(message.stack);
 			}
 		}
+	}
+
+	show(): void {
+		this.outputChannel.show(true);
 	}
 
 	private log(level: string, message: string, args: any[]): void {

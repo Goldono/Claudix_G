@@ -194,8 +194,15 @@
         let reapplied = 0;
         let reapplyFailed = 0;
         const conn = await runtime.sessionStore.getConnection();
+        const redoLogLines: string[] = [];
+        const redoFailedFiles: string[] = [];
+
+        redoLogLines.push(`[Restore] ════════════════════════════════════════════`);
+        redoLogLines.push(`[Restore] Re-apply: ${savedEdits.length} edits to re-apply`);
+        redoLogLines.push(`[Restore] ────────────────────────────────────────────`);
 
         for (const edit of savedEdits) {
+          const shortPath = edit.filePath.replace(/\\/g, '/').split('/').slice(-3).join('/');
           try {
             const result = await conn.revertFileEdit('reapply', edit.filePath, edit.editType, {
               oldString: edit.oldString,
@@ -204,11 +211,29 @@
               previousContents: null,
             });
             if (result.success) reapplied++;
-            else reapplyFailed++;
-          } catch {
+            else {
+              reapplyFailed++;
+              redoFailedFiles.push(shortPath);
+              redoLogLines.push(`[Restore] FAIL ${shortPath}: ${result.error || 'unknown error'}`);
+            }
+          } catch (err: any) {
             reapplyFailed++;
+            redoFailedFiles.push(shortPath);
+            redoLogLines.push(`[Restore] FAIL ${shortPath}: ${err?.message || 'exception'}`);
           }
         }
+
+        redoLogLines.push(`[Restore] ────────────────────────────────────────────`);
+        redoLogLines.push(`[Restore] Result: ${reapplied} OK, ${reapplyFailed} FAILED`);
+        redoLogLines.push(`[Restore] ════════════════════════════════════════════`);
+
+        try {
+          await (conn as any).sendRequest({
+            type: 'write_restore_log',
+            lines: redoLogLines,
+            show: reapplyFailed > 0,
+          });
+        } catch { /* ignore */ }
 
         // Clear the restored state + remove dimming
         const newMap = new Map(restoredCheckpoints.value);
@@ -217,9 +242,14 @@
         restoredAtIndex.value = null;
         hasActiveRevert.value = false;
 
-        const redoMsg = reapplyFailed > 0
-          ? `${reapplied} Änderungen wiederhergestellt, ${reapplyFailed} fehlgeschlagen.`
-          : `${reapplied} Änderungen wiederhergestellt.`;
+        let redoMsg: string;
+        if (reapplyFailed > 0) {
+          const shown = redoFailedFiles.slice(0, 5);
+          const extra = redoFailedFiles.length > 5 ? ` und ${redoFailedFiles.length - 5} weitere` : '';
+          redoMsg = `${reapplied} wiederhergestellt, ${reapplyFailed} fehlgeschlagen: ${shown.join(', ')}${extra}`;
+        } else {
+          redoMsg = `${reapplied} Änderungen wiederhergestellt.`;
+        }
         await runtime.appContext.showNotification?.(redoMsg, reapplyFailed > 0 ? 'warning' : 'info');
         return;
       }
@@ -271,9 +301,16 @@
       let reverted = 0;
       let failed = 0;
       const successfulReverts: EditEntry[] = [];
+      const logLines: string[] = [];
+      const failedFiles: string[] = [];
+
+      logLines.push(`[Restore] ════════════════════════════════════════════`);
+      logLines.push(`[Restore] Checkpoint restore: ${editsToRevert.length} edits to revert`);
+      logLines.push(`[Restore] ────────────────────────────────────────────`);
 
       for (let i = editsToRevert.length - 1; i >= 0; i--) {
         const edit = editsToRevert[i];
+        const shortPath = edit.filePath.replace(/\\/g, '/').split('/').slice(-3).join('/');
         try {
           const result = await connection.revertFileEdit('revert', edit.filePath, edit.editType, {
             oldString: edit.oldString,
@@ -286,11 +323,34 @@
             successfulReverts.unshift(edit);
           } else {
             failed++;
+            failedFiles.push(shortPath);
+            logLines.push(`[Restore] FAIL ${shortPath}: ${result.error || 'unknown error'}`);
           }
-        } catch {
+        } catch (err: any) {
           failed++;
+          failedFiles.push(shortPath);
+          logLines.push(`[Restore] FAIL ${shortPath}: ${err?.message || 'exception'}`);
         }
       }
+
+      logLines.push(`[Restore] ────────────────────────────────────────────`);
+      logLines.push(`[Restore] Result: ${reverted} OK, ${failed} FAILED`);
+      if (failedFiles.length > 0) {
+        logLines.push(`[Restore] Failed files:`);
+        for (const f of failedFiles) {
+          logLines.push(`[Restore]   • ${f}`);
+        }
+      }
+      logLines.push(`[Restore] ════════════════════════════════════════════`);
+
+      // Write log to output channel, show if there were failures
+      try {
+        await (connection as any).sendRequest({
+          type: 'write_restore_log',
+          lines: logLines,
+          show: failed > 0,
+        });
+      } catch { /* ignore if logging fails */ }
 
       // Save for undo toggle + set dimming
       if (successfulReverts.length > 0) {
@@ -302,9 +362,14 @@
       restoredAtIndex.value = messageIndex;
 
       if (reverted > 0 || failed > 0) {
-        const msg = failed > 0
-          ? `${reverted} Änderungen rückgängig gemacht, ${failed} fehlgeschlagen.`
-          : `${reverted} Änderungen rückgängig gemacht.`;
+        let msg: string;
+        if (failed > 0) {
+          const shown = failedFiles.slice(0, 5);
+          const extra = failedFiles.length > 5 ? ` und ${failedFiles.length - 5} weitere` : '';
+          msg = `${reverted} rückgängig, ${failed} fehlgeschlagen: ${shown.join(', ')}${extra}`;
+        } else {
+          msg = `${reverted} Änderungen rückgängig gemacht.`;
+        }
         await runtime.appContext.showNotification?.(msg, failed > 0 ? 'warning' : 'info');
       }
     },

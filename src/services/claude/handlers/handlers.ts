@@ -1002,55 +1002,88 @@ export async function handleRevertFileEdit(
     const { logService, workspaceService } = context;
     const { action, filePath, editType, oldString, newString, fileContents, previousContents } = request;
 
-    logService.info(`[RevertFileEdit] ${action} ${editType} on ${filePath}`);
+    const shortPath = filePath.replace(/\\/g, '/').split('/').slice(-3).join('/');
+    logService.info(`[Restore] ${action} ${editType} → ${shortPath}`);
 
     try {
         const cwd = workspaceService.getDefaultWorkspaceFolder()?.uri.fsPath || process.cwd();
         const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
 
         if (editType === 'edit') {
-            // For Edit: swap old_string <-> new_string in the file
             const searchStr = action === 'revert' ? newString : oldString;
             const replaceStr = action === 'revert' ? oldString : newString;
 
             if (!searchStr || !replaceStr) {
-                return { type: 'revert_file_edit_response', success: false, error: 'Missing old/new string data' };
+                logService.warn(`[Restore] FAIL ${shortPath}: missing old/new string data`);
+                return { type: 'revert_file_edit_response', success: false, error: `missing old/new string data for ${shortPath}` };
             }
 
-            const content = await fs.promises.readFile(absolutePath, 'utf-8');
+            let content: string;
+            try {
+                content = await fs.promises.readFile(absolutePath, 'utf-8');
+            } catch {
+                logService.warn(`[Restore] FAIL ${shortPath}: file not found`);
+                return { type: 'revert_file_edit_response', success: false, error: `file not found: ${shortPath}` };
+            }
+
             let actualSearch = searchStr;
             let actualReplace = replaceStr;
             let fileContent = content;
+
             if (!content.includes(searchStr)) {
+                // Try line-ending normalization
                 const normalizedContent = content.replace(/\r\n/g, '\n');
                 const normalizedSearch = searchStr.replace(/\r\n/g, '\n');
                 if (!normalizedContent.includes(normalizedSearch)) {
+                    // Try trailing whitespace normalization
                     const trimmedContent = normalizedContent.replace(/[ \t]+\n/g, '\n');
                     const trimmedSearch = normalizedSearch.replace(/[ \t]+\n/g, '\n');
                     if (!trimmedContent.includes(trimmedSearch)) {
-                        return { type: 'revert_file_edit_response', success: false, error: 'conflict' };
+                        const snippet = searchStr.substring(0, 80).replace(/\n/g, '\\n');
+                        logService.warn(`[Restore] FAIL ${shortPath}: text not found after normalization — snippet: "${snippet}..."`);
+                        return { type: 'revert_file_edit_response', success: false, error: `conflict in ${shortPath}: text not found (may have been modified by another edit)` };
                     }
                 }
                 fileContent = normalizedContent;
                 actualSearch = searchStr.replace(/\r\n/g, '\n');
                 actualReplace = replaceStr.replace(/\r\n/g, '\n');
             }
+
             const updated = fileContent.replace(actualSearch, actualReplace);
             await fs.promises.writeFile(absolutePath, updated, 'utf-8');
+            logService.info(`[Restore] OK   ${shortPath}`);
             return { type: 'revert_file_edit_response', success: true };
 
         } else if (editType === 'write') {
             if (action === 'revert') {
-                if (previousContents === null) {
-                    // File was newly created → delete it
-                    await fs.promises.unlink(absolutePath);
-                } else if (previousContents !== undefined) {
+                if (previousContents !== undefined && previousContents !== null) {
+                    // Explicit previous contents provided — use them
                     await fs.promises.writeFile(absolutePath, previousContents, 'utf-8');
+                    logService.info(`[Restore] OK   ${shortPath} (restored from previousContents)`);
+                } else {
+                    // No previous contents — try git to restore original state
+                    const gitRestored = await tryGitRestore(absolutePath, cwd, logService);
+                    if (gitRestored === 'restored') {
+                        logService.info(`[Restore] OK   ${shortPath} (restored via git)`);
+                    } else if (gitRestored === 'untracked') {
+                        // File was new (not in git) → delete it
+                        try {
+                            await fs.promises.unlink(absolutePath);
+                            logService.info(`[Restore] OK   ${shortPath} (deleted — was new file)`);
+                        } catch {
+                            logService.warn(`[Restore] FAIL ${shortPath}: could not delete new file`);
+                            return { type: 'revert_file_edit_response', success: false, error: `could not delete ${shortPath}` };
+                        }
+                    } else {
+                        logService.warn(`[Restore] FAIL ${shortPath}: git restore failed`);
+                        return { type: 'revert_file_edit_response', success: false, error: `git restore failed for ${shortPath}` };
+                    }
                 }
             } else {
                 // Re-apply: write the file contents back
                 if (fileContents) {
                     await fs.promises.writeFile(absolutePath, fileContents, 'utf-8');
+                    logService.info(`[Restore] OK   ${shortPath} (re-applied)`);
                 }
             }
             return { type: 'revert_file_edit_response', success: true };
@@ -1059,8 +1092,43 @@ export async function handleRevertFileEdit(
         return { type: 'revert_file_edit_response', success: false, error: 'Unknown edit type' };
 
     } catch (err: any) {
-        logService.error(`[RevertFileEdit] Error: ${err.message}`);
-        return { type: 'revert_file_edit_response', success: false, error: err.message };
+        logService.error(`[Restore] FAIL ${shortPath}: ${err.message}`);
+        return { type: 'revert_file_edit_response', success: false, error: `${shortPath}: ${err.message}` };
+    }
+}
+
+/**
+ * Try to restore a file to its git HEAD state.
+ * Returns 'restored' | 'untracked' | 'error'
+ */
+async function tryGitRestore(
+    absolutePath: string,
+    cwd: string,
+    logService: { info: (m: string) => void; warn: (m: string) => void }
+): Promise<'restored' | 'untracked' | 'error'> {
+    const { execFileSync } = require('child_process') as typeof import('child_process');
+    try {
+        // Check if the file is tracked by git
+        const relPath = path.relative(cwd, absolutePath).replace(/\\/g, '/');
+        const lsResult = execFileSync('git', ['ls-files', '--error-unmatch', relPath], {
+            cwd,
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        // File is tracked → restore from HEAD
+        execFileSync('git', ['checkout', 'HEAD', '--', relPath], {
+            cwd,
+            encoding: 'utf-8',
+            stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        return 'restored';
+    } catch (err: any) {
+        // git ls-files --error-unmatch exits with 1 if file is untracked
+        if (err.status === 1 || (err.stderr && err.stderr.includes('not in'))) {
+            return 'untracked';
+        }
+        logService.warn(`[Restore] git error: ${err.message}`);
+        return 'error';
     }
 }
 

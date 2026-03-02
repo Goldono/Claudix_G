@@ -707,6 +707,23 @@ export class ClaudeAgentService implements IClaudeAgentService {
             case "revert_file_edit":
                 return handleRevertFileEdit(request as any, this.handlerContext);
 
+            case "write_restore_log": {
+                const logReq = request as any;
+                if (Array.isArray(logReq.lines)) {
+                    for (const line of logReq.lines) {
+                        this.logService.info(line);
+                    }
+                }
+                if (logReq.show) {
+                    this.logService.show();
+                }
+                return { type: 'write_restore_log_response', success: true };
+            }
+
+            case "show_output_channel":
+                this.logService.show();
+                return { type: 'show_output_channel_response', success: true };
+
             case "get_usage_info":
                 return handleGetUsageInfo(request as any, this.handlerContext);
 

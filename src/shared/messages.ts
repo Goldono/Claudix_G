@@ -348,6 +348,32 @@ export interface RevertFileEditResponse {
 }
 
 /**
+ * Write lines to the Claudix output channel and optionally show it
+ */
+export interface WriteRestoreLogRequest {
+    type: "write_restore_log";
+    lines: string[];
+    show?: boolean;
+}
+
+export interface WriteRestoreLogResponse {
+    type: "write_restore_log_response";
+    success: boolean;
+}
+
+/**
+ * Show the Claudix output channel
+ */
+export interface ShowOutputChannelRequest {
+    type: "show_output_channel";
+}
+
+export interface ShowOutputChannelResponse {
+    type: "show_output_channel_response";
+    success: boolean;
+}
+
+/**
  * List files
  */
 export interface ListFilesRequest {
