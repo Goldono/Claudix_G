@@ -531,16 +531,13 @@
     () => session.value?.permissionMode.value ?? 'default'
   );
 
-  // Plan mode: persisted per session in localStorage
+  // Plan mode: purely visual toggle, persisted per session in localStorage
   const PLAN_MODE_KEY = 'claudix-plan-mode';
   const isInPlanMode = ref(false);
-  let planModeLastMsgCount = 0;
-  let planModeInitialized = false;
 
   function setPlanMode(value: boolean) {
     isInPlanMode.value = value;
-    // Persist to localStorage keyed by session ID
-    const sid = session.value?.sessionId();
+    const sid = activeSessionRaw.value?.sessionId?.() as string | undefined;
     if (!sid) return;
     try {
       const stored = localStorage.getItem(PLAN_MODE_KEY);
@@ -550,30 +547,9 @@
     } catch { /* ignore */ }
   }
 
-  // Live detection: only scan NEW messages (not history)
-  watch(messages, (msgs) => {
-    if (!planModeInitialized) {
-      planModeInitialized = true;
-      planModeLastMsgCount = msgs.length;
-      return;
-    }
-    for (let i = planModeLastMsgCount; i < msgs.length; i++) {
-      const content = msgs[i]?.message?.content;
-      if (!Array.isArray(content)) continue;
-      for (const wrapper of content) {
-        const block = wrapper?.content;
-        if (block?.type === 'tool_use') {
-          if (block.name === 'EnterPlanMode') { setPlanMode(true); }
-          if (block.name === 'ExitPlanMode') { setPlanMode(false); }
-        }
-      }
-    }
-    planModeLastMsgCount = msgs.length;
-  });
-
-  // Session switch: load persisted state from localStorage
-  watch(() => activeSessionRaw.value, () => {
-    const sid = session.value?.sessionId();
+  // On session load/switch: read persisted state from localStorage
+  watch(() => activeSessionRaw.value, (rawSession) => {
+    const sid = rawSession?.sessionId?.() as string | undefined;
     let stored = false;
     if (sid) {
       try {
@@ -582,8 +558,6 @@
       } catch { /* ignore */ }
     }
     isInPlanMode.value = stored;
-    planModeInitialized = false;
-    planModeLastMsgCount = 0;
   }, { immediate: true });
   const permissionRequests = computed(
     () => session.value?.permissionRequests.value ?? []
@@ -903,20 +877,12 @@
     await s.setModel({ value: modelId });
   }
 
-  async function handleExitPlanMode() {
+  function handleExitPlanMode() {
     setPlanMode(false);
-    const s = session.value;
-    if (s) {
-      await s.setPermissionMode('bypassPermissions' as PermissionMode);
-    }
   }
 
-  async function handleEnterPlanMode() {
+  function handleEnterPlanMode() {
     setPlanMode(true);
-    const s = session.value;
-    if (s) {
-      await s.setPermissionMode('plan' as PermissionMode);
-    }
   }
 
   function handleStop() {

@@ -23,11 +23,8 @@
       <span class="codicon codicon-close" />
     </span>
 
-  </button>
-
-  <!-- Context Menu (teleported to body to avoid overflow clipping) -->
-  <Teleport to="body">
-    <div v-if="contextMenuVisible" class="tab-context-menu" :style="menuStyle" @click.stop @contextmenu.prevent>
+    <!-- Context Menu -->
+    <div v-if="contextMenuVisible" class="tab-context-menu" @click.stop>
       <button class="context-menu-item" @click.stop="closeOthers">
         <span class="codicon codicon-close-all"></span>
         <span>Andere Tabs schließen</span>
@@ -37,7 +34,7 @@
         <span>Diesen Tab schließen</span>
       </button>
     </div>
-  </Teleport>
+  </button>
 </template>
 
 <script setup lang="ts">
@@ -58,10 +55,8 @@ const emit = defineEmits<{
 
 // Context menu
 const contextMenuVisible = ref(false);
-const menuStyle = ref({ top: '0px', left: '0px' });
 
-function showContextMenu(event: MouseEvent) {
-  menuStyle.value = { top: `${event.clientY}px`, left: `${event.clientX}px` };
+function showContextMenu() {
   contextMenuVisible.value = true;
   // Close on next click anywhere
   setTimeout(() => document.addEventListener('click', hideContextMenu, { once: true }), 0);
@@ -218,14 +213,12 @@ const label = computed(() => {
   font-size: 10px;
 }
 
-
-</style>
-
-<!-- Unscoped styles for teleported context menu -->
-<style>
+/* Context Menu */
 .tab-context-menu {
-  position: fixed;
-  z-index: 10000;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1000;
   min-width: 180px;
   padding: 4px 0;
   background-color: var(--vscode-menu-background);
@@ -234,7 +227,7 @@ const label = computed(() => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.tab-context-menu .context-menu-item {
+.context-menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -249,12 +242,12 @@ const label = computed(() => {
   text-align: left;
 }
 
-.tab-context-menu .context-menu-item:hover {
+.context-menu-item:hover {
   background-color: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
   color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
 }
 
-.tab-context-menu .context-menu-item .codicon {
+.context-menu-item .codicon {
   font-size: 12px;
   opacity: 0.8;
 }

@@ -428,7 +428,7 @@ function handleCommandKeydown(event: KeyboardEvent) {
 }
 
 
-/* Plan Mode Badge — always visible, toggle between inactive/active */
+/* Plan Mode Toggle — always visible */
 .plan-mode-badge {
   display: flex;
   align-items: center;
@@ -447,7 +447,6 @@ function handleCommandKeydown(event: KeyboardEvent) {
   opacity: 0.8;
 }
 
-/* Active state */
 .plan-mode-badge.plan-mode-active {
   background-color: color-mix(in srgb, var(--vscode-textLink-foreground) 15%, transparent);
   border-color: color-mix(in srgb, var(--vscode-textLink-foreground) 30%, transparent);
