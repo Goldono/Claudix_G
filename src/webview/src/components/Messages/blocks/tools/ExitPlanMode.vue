@@ -4,11 +4,9 @@
     :is-custom-layout="true"
   >
     <template #custom>
-      <!-- Minimal display for actual ExitPlanMode tool (not Write-routed plan card) -->
-      <div v-if="!isWriteRouted" class="plan-exit-badge">
-        <span class="codicon codicon-check plan-exit-icon"></span>
-        <span class="plan-exit-label">Plan-Modus verlassen</span>
-      </div>
+      <!-- ExitPlanMode tool: hidden — plan badge deactivation is handled automatically by ChatPage watcher -->
+      <template v-if="!isWriteRouted" />
+
 
       <!-- Full plan card for Write-routed plan files -->
       <div v-else class="plan-card">

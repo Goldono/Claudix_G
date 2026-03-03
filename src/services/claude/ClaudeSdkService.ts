@@ -40,6 +40,8 @@ export interface SdkQueryParams {
     cwd: string;
     permissionMode: PermissionMode | string;  // ← Accepts string
     maxThinkingTokens?: number;  // ← Thinking tokens limit
+    resumeSessionAt?: string;    // ← Resume only up to this message UUID (rewind)
+    forkSession?: boolean;       // ← Fork to new session ID when resuming
 }
 
 /**
@@ -86,11 +88,39 @@ const VS_CODE_APPEND_PROMPT = `
   ## Plan Mode Behavior
   IMPORTANT rules for plan mode in this VSCode extension:
   - When saving plan files, ALWAYS save them to the PROJECT directory at \`.claude/plans/\` (relative to the workspace root), NOT to the user's home directory. Create the directory if it doesn't exist.
-  - After creating a plan and calling ExitPlanMode, do NOT ask the user if they want to leave plan mode or start implementation. The plan will be displayed in the chat with an "Execute Plan" button. The user will decide when to start by clicking the button or writing a message.
-  - Stay in plan mode after presenting the plan. Only exit plan mode when the user explicitly requests execution.
   - Plan files written to the default location (~/.claude/plans/) will be automatically copied to the project directory by the extension.
-  - NEVER present Yes/No choices or ask "Do you want to proceed?" after creating a plan or calling ExitPlanMode. Just call ExitPlanMode silently and let the UI handle the rest.
-  - CRITICAL: If ExitPlanMode fails with "No plan file found at <path>", you MUST immediately and silently write the plan to that exact <path> and call ExitPlanMode again. Do NOT show any error to the user.`;
+  - CRITICAL: After writing the plan file, do NOT call ExitPlanMode. NEVER call ExitPlanMode on your own. Stay in plan mode and STOP. The plan will be displayed in the chat with an "Execute Plan" button. The user decides when to start.
+  - You may ONLY call ExitPlanMode when the user explicitly tells you to execute the plan (e.g. "Führe den Plan aus", "Execute the plan", clicking the Execute button). NEVER call it before that.
+  - NEVER present Yes/No choices or ask "Do you want to proceed?" after creating a plan. Just write the plan file and stop.
+  - If ExitPlanMode fails with "No plan file found at <path>", you MUST immediately and silently write the plan to that exact <path> and call ExitPlanMode again. Do NOT show any error to the user.
+
+  ## Shell & Bash Commands — MANDATORY
+  CRITICAL: The Bash tool runs /usr/bin/bash (Unix shell) — even on Windows. You MUST:
+  - ALWAYS use Unix/POSIX syntax: \`mkdir -p\`, \`rm -rf\`, \`cp\`, \`mv\`, \`touch\`, \`ls\`, \`cat\`
+  - NEVER use Windows CMD syntax: \`if not exist\`, \`del\`, \`copy\`, \`move\`, \`md\`, \`rd\`, \`dir\`
+  - NEVER use PowerShell syntax: \`New-Item\`, \`Remove-Item\`, \`Test-Path\`
+  - Use forward slashes in paths: \`mkdir -p "f:/path/to/dir"\` (NOT backslashes)
+  - If a Bash command fails with "syntax error" or "command not found", you likely used Windows syntax. Fix it immediately.
+
+  ## Creating New Files — MANDATORY
+  The Write tool REQUIRES reading a file before writing to it. For NEW files that don't exist yet:
+  1. Create the parent directory: \`mkdir -p "path/to/dir"\`
+  2. Create an empty file: \`touch "path/to/file.ext"\` (or \`printf '' > "path/to/file.ext"\`)
+  3. Read the (empty) file with the Read tool
+  4. THEN use the Write tool to write the actual content
+  NEVER skip these steps — the Write tool WILL reject writes to unread files.
+
+  ## Read Before Edit — MANDATORY
+  Before EVERY file modification (Edit or Write tool), you MUST freshly read the file with the Read tool — even if you read it earlier in the same conversation.
+  - Files can change between steps (linter, formatter, failed edits).
+  - The exact text in the Edit tool's old_string MUST match the current file content 1:1.
+  - If an Edit fails: re-read the file immediately, then retry. NEVER reuse the same old_string blindly.
+  - Rule: Read → Copy exact text → Replace. Always in this order.
+
+  ## Large Files & Tool Parameters — MANDATORY
+  - Files over ~2000 lines: ALWAYS use \`offset\` and \`limit\` parameters with the Read tool. NEVER try to load the entire file.
+  - Search first with Grep to find the relevant line numbers, then read only that section.
+  - Grep tool: ONLY use documented parameters (\`pattern\`, \`path\`, \`glob\`, \`type\`, \`output_mode\`, \`-A\`, \`-B\`, \`-C\`, \`-i\`, \`-n\`, \`head_limit\`, \`offset\`, \`multiline\`). NEVER invent parameters like \`context\` or uppercase \`C\`.`;
 
 /**
  * ClaudeSdkService implementation
@@ -125,7 +155,7 @@ export class ClaudeSdkService implements IClaudeSdkService {
      * Call Claude SDK to perform query
      */
     async query(params: SdkQueryParams): Promise<Query> {
-        const { inputStream, resume, canUseTool, model, cwd, permissionMode, maxThinkingTokens } = params;
+        const { inputStream, resume, canUseTool, model, cwd, permissionMode, maxThinkingTokens, resumeSessionAt, forkSession } = params;
 
         this.logService.info('========================================');
         this.logService.info('ClaudeSdkService.query() starting call');
@@ -152,9 +182,12 @@ export class ClaudeSdkService implements IClaudeSdkService {
             // Basic parameters
             cwd: cwdParam,
             resume: resume || undefined,
+            resumeSessionAt: resumeSessionAt || undefined,
+            forkSession: forkSession || undefined,
             model: modelParam,
             permissionMode: permissionModeParam,
             maxThinkingTokens: maxThinkingTokens,
+            enableFileCheckpointing: true,
 
             // CanUseTool callback
             canUseTool,

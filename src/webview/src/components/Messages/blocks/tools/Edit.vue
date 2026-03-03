@@ -101,21 +101,9 @@ interface Props {
 
 const props = defineProps<Props>();
 
-// Revert state — initialise from persisted revertedToolUseIds if available
-const toolUseId = computed(() => props.toolUse?.id as string | undefined);
+// Revert state
 const isReverted = ref(false);
 const revertLoading = ref(false);
-
-// Restore persisted revert state on mount / when context changes
-watch(
-  () => [props.context?.revertedToolUseIds, toolUseId.value] as const,
-  ([ids, id]) => {
-    if (id && ids?.has(id)) {
-      isReverted.value = true;
-    }
-  },
-  { immediate: true },
-);
 
 const showRevertButton = computed(() => {
   return !!props.toolResult && !props.toolResult.is_error && !!filePath.value;
@@ -137,10 +125,6 @@ async function handleToggleRevert() {
     );
     if (result.success) {
       isReverted.value = !isReverted.value;
-      // Persist the revert state
-      if (toolUseId.value) {
-        props.context.setToolUseReverted?.(toolUseId.value, isReverted.value);
-      }
     } else if (result.error === 'conflict') {
       await props.context.showNotification?.(
         'Datei wurde zwischenzeitlich geändert. Rückgängig nicht möglich.',

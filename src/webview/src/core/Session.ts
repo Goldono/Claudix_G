@@ -247,7 +247,7 @@ export class Session {
     }
   }
 
-  async launchClaude(): Promise<string> {
+  async launchClaude(opts?: { resumeSessionAt?: string; forkSession?: boolean }): Promise<string> {
     const existingChannel = this.claudeChannelId();
     if (existingChannel) {
       return existingChannel;
@@ -279,7 +279,9 @@ export class Session {
       this.cwd() ?? undefined,
       this.modelSelection() ?? undefined,
       this.permissionMode(),
-      this.thinkingLevel()
+      this.thinkingLevel(),
+      opts?.resumeSessionAt,
+      opts?.forkSession
     );
 
     void this.readMessages(stream);
@@ -311,6 +313,18 @@ export class Session {
     this.claudeChannelId(undefined);
     this.busy(false);
     await this.launchClaude();
+  }
+
+  /**
+   * Rewind the session to a specific message UUID.
+   * Uses SDK's resumeSessionAt + forkSession to create a fresh context
+   * that only contains messages up to the given UUID.
+   */
+  async relaunchWithRewind(resumeSessionAt: string): Promise<void> {
+    await this.interrupt();
+    this.claudeChannelId(undefined);
+    this.busy(false);
+    await this.launchClaude({ resumeSessionAt, forkSession: true });
   }
 
   async listFiles(pattern?: string, signal?: AbortSignal): Promise<any> {

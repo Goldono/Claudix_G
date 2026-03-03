@@ -83,12 +83,11 @@ const isRestored = computed(() => {
 
 // （）
 const displayContent = computed(() => {
+  let raw = '';
   if (typeof props.message.message.content === 'string') {
-    return props.message.message.content;
-  }
- // content blocks，
-  if (Array.isArray(props.message.message.content)) {
-    return props.message.message.content
+    raw = props.message.message.content;
+  } else if (Array.isArray(props.message.message.content)) {
+    raw = props.message.message.content
       .map(wrapper => {
         const block = wrapper.content;
         if (block.type === 'text') {
@@ -98,7 +97,8 @@ const displayContent = computed(() => {
       })
       .join(' ');
   }
-  return '';
+  // Strip injected <system-reminder>...</system-reminder> blocks so they stay invisible to the user
+  return raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>\s*/g, '').trim();
 });
 
 // （image document blocks）
@@ -166,15 +166,11 @@ function cancelEdit() {
 async function handleSaveEdit(content?: string) {
   const finalContent = content || displayContent.value;
 
-  if (finalContent.trim()) {
-    // If checkpoint is restored, use editAndRestart to truncate + resend
-    if (isRestored.value && props.context?.editAndRestart) {
-      cancelEdit();
-      await props.context.editAndRestart(props.messageIndex, finalContent.trim());
-      return;
-    }
-    // Normal edit (not yet implemented for non-restored state)
-    console.log('[UserMessage] Save edit:', finalContent.trim());
+  if (finalContent.trim() && props.context?.editAndRestart) {
+    // Truncate from this message onward and resend with edited content
+    cancelEdit();
+    await props.context.editAndRestart(props.messageIndex, finalContent.trim());
+    return;
   }
 
   cancelEdit();

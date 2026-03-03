@@ -36,6 +36,7 @@ export class Message {
   subtype?: string;
   session_id?: string;
   is_error?: boolean;
+  sdkUuid?: string;
 
   constructor(
     type: MessageRole,
@@ -45,6 +46,7 @@ export class Message {
       subtype?: string;
       session_id?: string;
       is_error?: boolean;
+      sdkUuid?: string;
     }
   ) {
     this.id = `msg-${Date.now()}-${++Message._counter}`;
@@ -56,6 +58,7 @@ export class Message {
       this.subtype = extra.subtype;
       this.session_id = extra.session_id;
       this.is_error = extra.is_error;
+      this.sdkUuid = extra.sdkUuid;
     }
   }
 
@@ -122,7 +125,7 @@ export class Message {
         }
       }
 
-      return new Message(
+      const msg = new Message(
         messageType,
         {
           role: raw.message?.role ?? raw.type,
@@ -130,6 +133,11 @@ export class Message {
         },
         raw.timestamp || Date.now()
       );
+      // Preserve SDK UUID for session rewind
+      if (raw.uuid) {
+        msg.sdkUuid = raw.uuid;
+      }
+      return msg;
     }
 
  // system （）

@@ -147,8 +147,8 @@
   if (!runtime) throw new Error('[ChatPage] runtime not provided');
 
   // Store reverted edits per message index for undo-restore toggle
-  type EditEntry = { filePath: string; editType: 'edit' | 'write'; oldString?: string; newString?: string; fileContents?: string; toolUseId?: string };
-  type RestoreState = { atIndex: number | null; checkpoints: Map<number, EditEntry[]>; revertedIds: Set<string> };
+  type EditEntry = { filePath: string; editType: 'edit' | 'write'; oldString?: string; newString?: string; fileContents?: string };
+  type RestoreState = { atIndex: number | null; checkpoints: Map<number, EditEntry[]> };
   const restoredCheckpoints = ref<Map<number, EditEntry[]>>(new Map());
   // Track which index messages are dimmed from (null = nothing dimmed)
   const restoredAtIndex = ref<number | null>(null);
@@ -156,105 +156,12 @@
   // Track whether a revert is active — triggers fresh session on next submit
   const hasActiveRevert = ref(false);
 
-  // Track individually reverted tool_use IDs (persisted to localStorage)
-  const revertedToolUseIds = ref<Set<string>>(new Set());
-
   // Queued message: shown when user submits while AI is busy
   const queuedMessage = ref<string | null>(null);
 
   // Per-session save/restore of checkpoint state (so switching tabs preserves gray)
   const savedRestoreStates = new Map<any, RestoreState>();
   let previousRawSession: any = null;
-
-  // --- Revert state persistence via localStorage ---
-  const REVERT_STATE_KEY = 'claudix-revert-state';
-
-  interface PersistedRevertState {
-    atIndex: number | null;
-    checkpoints: Record<string, EditEntry[]>; // Map<number, EditEntry[]> serialized as Record
-    revertedIds: string[]; // Set<string> serialized as array
-  }
-
-  function getSessionId(): string | undefined {
-    return activeSessionRaw.value?.sessionId?.() as string | undefined;
-  }
-
-  function loadAllRevertStates(): Record<string, PersistedRevertState> {
-    try {
-      const raw = localStorage.getItem(REVERT_STATE_KEY);
-      return raw ? JSON.parse(raw) : {};
-    } catch { return {}; }
-  }
-
-  function persistRevertState(): void {
-    const sid = getSessionId();
-    if (!sid) return;
-    try {
-      const all = loadAllRevertStates();
-      const checkpointsObj: Record<string, EditEntry[]> = {};
-      for (const [key, val] of restoredCheckpoints.value) {
-        checkpointsObj[String(key)] = val;
-      }
-      const hasData = restoredAtIndex.value != null || revertedToolUseIds.value.size > 0;
-      if (hasData) {
-        all[sid] = {
-          atIndex: restoredAtIndex.value,
-          checkpoints: checkpointsObj,
-          revertedIds: Array.from(revertedToolUseIds.value),
-        };
-      } else {
-        delete all[sid];
-      }
-      localStorage.setItem(REVERT_STATE_KEY, JSON.stringify(all));
-    } catch { /* ignore */ }
-  }
-
-  function loadRevertStateForSession(sid: string): void {
-    try {
-      const all = loadAllRevertStates();
-      const state = all[sid];
-      if (state) {
-        restoredAtIndex.value = state.atIndex;
-        const map = new Map<number, EditEntry[]>();
-        for (const [key, val] of Object.entries(state.checkpoints || {})) {
-          map.set(Number(key), val);
-        }
-        restoredCheckpoints.value = map;
-        revertedToolUseIds.value = new Set(state.revertedIds || []);
-        hasActiveRevert.value = restoredAtIndex.value != null || revertedToolUseIds.value.size > 0;
-      } else {
-        restoredAtIndex.value = null;
-        restoredCheckpoints.value = new Map();
-        revertedToolUseIds.value = new Set();
-        hasActiveRevert.value = false;
-      }
-    } catch {
-      restoredAtIndex.value = null;
-      restoredCheckpoints.value = new Map();
-      revertedToolUseIds.value = new Set();
-      hasActiveRevert.value = false;
-    }
-  }
-
-  function removeRevertStateForSession(sid: string): void {
-    try {
-      const all = loadAllRevertStates();
-      delete all[sid];
-      localStorage.setItem(REVERT_STATE_KEY, JSON.stringify(all));
-    } catch { /* ignore */ }
-  }
-
-  /** Mark/unmark a single tool_use as reverted and persist */
-  function setToolUseReverted(toolUseId: string, reverted: boolean): void {
-    const newSet = new Set(revertedToolUseIds.value);
-    if (reverted) {
-      newSet.add(toolUseId);
-    } else {
-      newSet.delete(toolUseId);
-    }
-    revertedToolUseIds.value = newSet;
-    persistRevertState();
-  }
 
   const toolContext = computed<ToolContext>(() => ({
     fileOpener: {
@@ -348,18 +255,10 @@
 
         // Clear the restored state + remove dimming
         const newMap = new Map(restoredCheckpoints.value);
-        // Remove tool_use IDs of the checkpoint edits from the reverted set
-        const idsToRemove = savedEdits.filter(e => e.toolUseId).map(e => e.toolUseId!);
         newMap.delete(messageIndex);
         restoredCheckpoints.value = newMap;
         restoredAtIndex.value = null;
         hasActiveRevert.value = false;
-        if (idsToRemove.length > 0) {
-          const newIds = new Set(revertedToolUseIds.value);
-          for (const id of idsToRemove) newIds.delete(id);
-          revertedToolUseIds.value = newIds;
-        }
-        persistRevertState();
 
         let redoMsg: string;
         if (reapplyFailed > 0) {
@@ -404,14 +303,12 @@
               editType: 'edit',
               oldString: input.old_string,
               newString: input.new_string,
-              toolUseId: block.id,
             });
           } else if (name === 'Write') {
             editsToRevert.push({
               filePath: input.file_path,
               editType: 'write',
               fileContents: input.content,
-              toolUseId: block.id,
             });
           }
         }
@@ -495,16 +392,8 @@
         newMap.set(messageIndex, successfulReverts);
         restoredCheckpoints.value = newMap;
         hasActiveRevert.value = true;
-
-        // Add all successfully reverted tool_use IDs to the persistent set
-        const newIds = new Set(revertedToolUseIds.value);
-        for (const edit of successfulReverts) {
-          if (edit.toolUseId) newIds.add(edit.toolUseId);
-        }
-        revertedToolUseIds.value = newIds;
       }
       restoredAtIndex.value = messageIndex;
-      persistRevertState();
 
       if (reverted > 0 || failed > 0) {
         let msg: string;
@@ -522,10 +411,7 @@
       return restoredAtIndex.value === messageIndex;
     },
     restoredAtIndex: restoredAtIndex.value,
-    revertedToolUseIds: revertedToolUseIds.value,
-    setToolUseReverted,
     editAndRestart: async (messageIndex: number, newContent: string) => {
-      // Use raw Session object directly (has truncateMessagesAfter + send)
       const rawSession = activeSessionRaw.value;
       if (!rawSession) return;
 
@@ -535,17 +421,95 @@
         await new Promise(r => setTimeout(r, 300));
       }
 
-      // Truncate: keep messages 0..messageIndex-1 (remove clicked message + everything after)
-      rawSession.truncateMessagesAfter(messageIndex > 0 ? messageIndex - 1 : 0);
+      const allMsgs = messages.value;
+
+      // --- Try SDK-based rewind using resumeSessionAt ---
+      // Find the UUID of the user message we're editing (or the one before it)
+      // so the SDK resumes the session only up to that point.
+      let rewindUuid: string | undefined;
+      // Look backwards from the edited message for an assistant message with a UUID
+      for (let i = messageIndex - 1; i >= 0; i--) {
+        if (allMsgs[i]?.sdkUuid) {
+          rewindUuid = allMsgs[i].sdkUuid;
+          break;
+        }
+      }
+
+      if (rewindUuid && rawSession.sessionId()) {
+        // === PRIMARY PATH: SDK-based rewind ===
+        // Truncate UI messages
+        rawSession.truncateMessagesAfter(messageIndex > 0 ? messageIndex - 1 : 0);
+
+        // Relaunch with rewind — SDK handles file revert + context truncation
+        await rawSession.relaunchWithRewind(rewindUuid);
+      } else {
+        // === FALLBACK: Manual revert (no UUID available) ===
+        const editsToRevert: EditEntry[] = [];
+
+        for (let i = messageIndex; i < allMsgs.length; i++) {
+          const msg = allMsgs[i];
+          const content = msg?.message?.content;
+          if (!Array.isArray(content)) continue;
+
+          for (const wrapper of content) {
+            const block = wrapper?.content;
+            if (!block || block.type !== 'tool_use') continue;
+            const name = block.name;
+            const input = block.input;
+            if (!input?.file_path) continue;
+
+            if (name === 'Edit' || name === 'MultiEdit') {
+              editsToRevert.push({
+                filePath: input.file_path,
+                editType: 'edit',
+                oldString: input.old_string,
+                newString: input.new_string,
+              });
+            } else if (name === 'Write') {
+              editsToRevert.push({
+                filePath: input.file_path,
+                editType: 'write',
+                fileContents: input.content,
+              });
+            }
+          }
+        }
+
+        if (editsToRevert.length > 0) {
+          const connection = await runtime.sessionStore.getConnection();
+          const writeRevertedFiles = new Set<string>();
+
+          for (let i = editsToRevert.length - 1; i >= 0; i--) {
+            const edit = editsToRevert[i];
+            if (edit.editType === 'edit' && writeRevertedFiles.has(edit.filePath)) continue;
+            try {
+              const result = await connection.revertFileEdit('revert', edit.filePath, edit.editType, {
+                oldString: edit.oldString,
+                newString: edit.newString,
+                fileContents: edit.fileContents,
+                previousContents: null,
+              });
+              if (result.success && edit.editType === 'write') {
+                writeRevertedFiles.add(edit.filePath);
+              }
+            } catch { /* continue with remaining reverts */ }
+          }
+        }
+
+        // Truncate UI messages
+        rawSession.truncateMessagesAfter(messageIndex > 0 ? messageIndex - 1 : 0);
+
+        // Reset SDK session completely (no UUID = fresh start)
+        await rawSession.restartClaude();
+        rawSession.sessionId(undefined);
+      }
 
       // Clear restore state
       restoredAtIndex.value = null;
       restoredCheckpoints.value = new Map();
-      revertedToolUseIds.value = new Set();
       hasActiveRevert.value = false;
-      persistRevertState();
 
-      // Send the edited message as new
+      // Resend the edited message
       try {
         userScrolledUp = false;
         await rawSession.send(newContent);
@@ -647,9 +611,10 @@
     () => session.value?.permissionMode.value ?? 'default'
   );
 
-  // Plan mode: purely visual toggle, persisted per session in localStorage
+  // Plan mode: functional toggle, persisted per session in localStorage
   const PLAN_MODE_KEY = 'claudix-plan-mode';
   const isInPlanMode = ref(false);
+  const planModeJustDeactivated = ref(false);
 
   function setPlanMode(value: boolean) {
     isInPlanMode.value = value;
@@ -743,14 +708,12 @@
   }
 
   // Save/restore checkpoint state per session so gray persists across tab switches
-  // Also loads persisted state from localStorage when no in-memory state exists
   watch(() => activeSessionRaw.value, (newRaw) => {
     // Save current state for the session we're leaving
     if (previousRawSession) {
       savedRestoreStates.set(previousRawSession, {
         atIndex: restoredAtIndex.value,
         checkpoints: new Map(restoredCheckpoints.value),
-        revertedIds: new Set(revertedToolUseIds.value),
       });
     }
     // Restore saved state for the session we're entering
@@ -758,19 +721,9 @@
     if (saved) {
       restoredAtIndex.value = saved.atIndex;
       restoredCheckpoints.value = saved.checkpoints;
-      revertedToolUseIds.value = saved.revertedIds;
-      hasActiveRevert.value = saved.atIndex != null || saved.revertedIds.size > 0;
     } else {
-      // No in-memory state — try loading from localStorage (e.g. after restart)
-      const sid = newRaw?.sessionId?.() as string | undefined;
-      if (sid) {
-        loadRevertStateForSession(sid);
-      } else {
-        restoredAtIndex.value = null;
-        restoredCheckpoints.value = new Map();
-        revertedToolUseIds.value = new Set();
-        hasActiveRevert.value = false;
-      }
+      restoredAtIndex.value = null;
+      restoredCheckpoints.value = new Map();
     }
     previousRawSession = newRaw;
   });
@@ -792,6 +745,20 @@
       if (increased) {
         await nextTick();
         scrollToBottom(); // respects userScrolledUp
+
+        // Auto-activate plan mode when SDK calls EnterPlanMode tool.
+        // ExitPlanMode does NOT deactivate — plan mode stays active until the user manually turns it off.
+        const latestMsgs = messages.value;
+        for (let i = latestMsgs.length - 1; i >= Math.max(0, latestMsgs.length - 3); i--) {
+          const content = latestMsgs[i]?.message?.content;
+          if (!Array.isArray(content)) continue;
+          for (const wrapper of content) {
+            const block = wrapper?.content;
+            if (block?.type === 'tool_use' && block.name === 'EnterPlanMode' && !isInPlanMode.value) {
+              setPlanMode(true);
+            }
+          }
+        }
       }
     }
   );
@@ -893,6 +860,23 @@
     let trimmed = (content || '').trim();
     if (!s || (!trimmed && attachments.value.length === 0)) return;
 
+    // Deactivate plan mode when user executes a plan (button or manual message)
+    if (isInPlanMode.value && /führe den plan|execute.*plan|plan ausführen/i.test(trimmed)) {
+      setPlanMode(false);
+    }
+
+    // When plan mode badge is active and this is NOT a plan-execution command,
+    // prepend a system hint so Claude calls EnterPlanMode immediately.
+    if (isInPlanMode.value && !/führe den plan|execute.*plan|plan ausführen/i.test(trimmed)) {
+      trimmed = `<system-reminder>PLAN MODE IS ACTIVE. You MUST call the EnterPlanMode tool IMMEDIATELY as your very first action before doing anything else. Do NOT read files, do NOT edit files, do NOT write code. ONLY call EnterPlanMode first. The user has activated plan mode via the UI badge — respect this setting.</system-reminder>\n${trimmed}`;
+    }
+
+    // When plan mode badge was just deactivated, tell Claude to exit plan mode and work normally.
+    if (planModeJustDeactivated.value) {
+      planModeJustDeactivated.value = false;
+      trimmed = `<system-reminder>PLAN MODE HAS BEEN DEACTIVATED by the user via the UI badge. If you are currently in plan mode, call ExitPlanMode immediately and then proceed normally with the user's request. Do NOT create plans — implement directly.</system-reminder>\n${trimmed}`;
+    }
+
     // If chat is busy, queue the message instead of sending
     if (isBusy.value) {
       queuedMessage.value = trimmed;
@@ -927,8 +911,6 @@
       hasActiveRevert.value = false;
       restoredAtIndex.value = null;
       restoredCheckpoints.value = new Map();
-      revertedToolUseIds.value = new Set();
-      persistRevertState();
       try {
         const newSession = await runtime.sessionStore.createSession({ isExplicit: true });
         userScrolledUp = false;
@@ -1008,10 +990,16 @@
   }
 
   function handleExitPlanMode() {
+    // Track that plan mode was just turned off so the next message tells Claude to exit plan mode
+    if (isInPlanMode.value) {
+      planModeJustDeactivated.value = true;
+    }
     setPlanMode(false);
   }
 
   function handleEnterPlanMode() {
+    // Clear any pending deactivation signal — only the latest toggle state matters
+    planModeJustDeactivated.value = false;
     setPlanMode(true);
   }
 

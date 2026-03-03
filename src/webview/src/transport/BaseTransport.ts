@@ -79,7 +79,9 @@ export abstract class BaseTransport {
     cwd?: string,
     model?: string,
     permissionMode?: PermissionMode,
-    thinkingLevel?: string
+    thinkingLevel?: string,
+    resumeSessionAt?: string,
+    forkSession?: boolean
   ): AsyncQueue<any> {
     const queue = new AsyncQueue<any>();
     this.streams.set(channelId, queue);
@@ -87,6 +89,8 @@ export abstract class BaseTransport {
       type: "launch_claude",
       channelId,
       resume,
+      resumeSessionAt,
+      forkSession,
       cwd,
       model,
       permissionMode,

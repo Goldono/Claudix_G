@@ -261,7 +261,9 @@ export class ClaudeAgentService implements IClaudeAgentService {
                             message.cwd || this.getCwd(),
                             message.model || null,
                             message.permissionMode || "default",
-                            message.thinkingLevel || null
+                            message.thinkingLevel || null,
+                            message.resumeSessionAt || undefined,
+                            message.forkSession || undefined
                         );
                         break;
 
@@ -311,7 +313,9 @@ export class ClaudeAgentService implements IClaudeAgentService {
         cwd: string,
         model: string | null,
         permissionMode: string,
-        thinkingLevel: string | null
+        thinkingLevel: string | null,
+        resumeSessionAt?: string,
+        forkSession?: boolean
     ): Promise<void> {
  // thinkingLevel
         if (thinkingLevel) {
@@ -416,7 +420,9 @@ export class ClaudeAgentService implements IClaudeAgentService {
                 model,
                 cwd,
                 permissionMode,
-                maxThinkingTokens
+                maxThinkingTokens,
+                resumeSessionAt,
+                forkSession
             );
  this.logService.info(' ✓ spawnClaude() ，Query ');
 
@@ -565,7 +571,9 @@ export class ClaudeAgentService implements IClaudeAgentService {
         model: string | null,
         cwd: string,
         permissionMode: string,
-        maxThinkingTokens: number
+        maxThinkingTokens: number,
+        resumeSessionAt?: string,
+        forkSession?: boolean
     ): Promise<Query> {
         return this.sdkService.query({
             inputStream,
@@ -574,7 +582,9 @@ export class ClaudeAgentService implements IClaudeAgentService {
             model,
             cwd,
             permissionMode,
-            maxThinkingTokens
+            maxThinkingTokens,
+            resumeSessionAt,
+            forkSession
         });
     }
 

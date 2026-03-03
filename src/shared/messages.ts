@@ -34,6 +34,8 @@ export interface LaunchClaudeMessage extends BaseMessage {
     type: "launch_claude";
     channelId: string;
     resume?: string | null;        // Resume session ID
+    resumeSessionAt?: string;      // Resume only up to this message UUID (for rewind)
+    forkSession?: boolean;         // Fork to new session ID when resuming
     cwd?: string;                  // Working directory
     model?: string | null;         // Model name
     permissionMode?: PermissionMode; // Permission mode
