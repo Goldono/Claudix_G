@@ -17,6 +17,10 @@ export interface ToolContext {
   restoreCheckpoint?: (messageIndex: number) => Promise<void>;
   isCheckpointRestored?: (messageIndex: number) => boolean;
   restoredAtIndex?: number | null;
+  /** Set of tool_use IDs that are currently reverted (persisted across restarts) */
+  revertedToolUseIds?: Set<string>;
+  /** Mark a tool_use as reverted or un-reverted (persists to localStorage) */
+  setToolUseReverted?: (toolUseId: string, reverted: boolean) => void;
   editAndRestart?: (messageIndex: number, newContent: string) => Promise<void>;
   showNotification?: (message: string, severity: 'info' | 'warning' | 'error') => Promise<any>;
   /** Send a user message to the active Claude session (used by "Execute Plan" button) */

@@ -147,8 +147,8 @@
   if (!runtime) throw new Error('[ChatPage] runtime not provided');
 
   // Store reverted edits per message index for undo-restore toggle
-  type EditEntry = { filePath: string; editType: 'edit' | 'write'; oldString?: string; newString?: string; fileContents?: string };
-  type RestoreState = { atIndex: number | null; checkpoints: Map<number, EditEntry[]> };
+  type EditEntry = { filePath: string; editType: 'edit' | 'write'; oldString?: string; newString?: string; fileContents?: string; toolUseId?: string };
+  type RestoreState = { atIndex: number | null; checkpoints: Map<number, EditEntry[]>; revertedIds: Set<string> };
   const restoredCheckpoints = ref<Map<number, EditEntry[]>>(new Map());
   // Track which index messages are dimmed from (null = nothing dimmed)
   const restoredAtIndex = ref<number | null>(null);
@@ -156,12 +156,105 @@
   // Track whether a revert is active — triggers fresh session on next submit
   const hasActiveRevert = ref(false);
 
+  // Track individually reverted tool_use IDs (persisted to localStorage)
+  const revertedToolUseIds = ref<Set<string>>(new Set());
+
   // Queued message: shown when user submits while AI is busy
   const queuedMessage = ref<string | null>(null);
 
   // Per-session save/restore of checkpoint state (so switching tabs preserves gray)
   const savedRestoreStates = new Map<any, RestoreState>();
   let previousRawSession: any = null;
+
+  // --- Revert state persistence via localStorage ---
+  const REVERT_STATE_KEY = 'claudix-revert-state';
+
+  interface PersistedRevertState {
+    atIndex: number | null;
+    checkpoints: Record<string, EditEntry[]>; // Map<number, EditEntry[]> serialized as Record
+    revertedIds: string[]; // Set<string> serialized as array
+  }
+
+  function getSessionId(): string | undefined {
+    return activeSessionRaw.value?.sessionId?.() as string | undefined;
+  }
+
+  function loadAllRevertStates(): Record<string, PersistedRevertState> {
+    try {
+      const raw = localStorage.getItem(REVERT_STATE_KEY);
+      return raw ? JSON.parse(raw) : {};
+    } catch { return {}; }
+  }
+
+  function persistRevertState(): void {
+    const sid = getSessionId();
+    if (!sid) return;
+    try {
+      const all = loadAllRevertStates();
+      const checkpointsObj: Record<string, EditEntry[]> = {};
+      for (const [key, val] of restoredCheckpoints.value) {
+        checkpointsObj[String(key)] = val;
+      }
+      const hasData = restoredAtIndex.value != null || revertedToolUseIds.value.size > 0;
+      if (hasData) {
+        all[sid] = {
+          atIndex: restoredAtIndex.value,
+          checkpoints: checkpointsObj,
+          revertedIds: Array.from(revertedToolUseIds.value),
+        };
+      } else {
+        delete all[sid];
+      }
+      localStorage.setItem(REVERT_STATE_KEY, JSON.stringify(all));
+    } catch { /* ignore */ }
+  }
+
+  function loadRevertStateForSession(sid: string): void {
+    try {
+      const all = loadAllRevertStates();
+      const state = all[sid];
+      if (state) {
+        restoredAtIndex.value = state.atIndex;
+        const map = new Map<number, EditEntry[]>();
+        for (const [key, val] of Object.entries(state.checkpoints || {})) {
+          map.set(Number(key), val);
+        }
+        restoredCheckpoints.value = map;
+        revertedToolUseIds.value = new Set(state.revertedIds || []);
+        hasActiveRevert.value = restoredAtIndex.value != null || revertedToolUseIds.value.size > 0;
+      } else {
+        restoredAtIndex.value = null;
+        restoredCheckpoints.value = new Map();
+        revertedToolUseIds.value = new Set();
+        hasActiveRevert.value = false;
+      }
+    } catch {
+      restoredAtIndex.value = null;
+      restoredCheckpoints.value = new Map();
+      revertedToolUseIds.value = new Set();
+      hasActiveRevert.value = false;
+    }
+  }
+
+  function removeRevertStateForSession(sid: string): void {
+    try {
+      const all = loadAllRevertStates();
+      delete all[sid];
+      localStorage.setItem(REVERT_STATE_KEY, JSON.stringify(all));
+    } catch { /* ignore */ }
+  }
+
+  /** Mark/unmark a single tool_use as reverted and persist */
+  function setToolUseReverted(toolUseId: string, reverted: boolean): void {
+    const newSet = new Set(revertedToolUseIds.value);
+    if (reverted) {
+      newSet.add(toolUseId);
+    } else {
+      newSet.delete(toolUseId);
+    }
+    revertedToolUseIds.value = newSet;
+    persistRevertState();
+  }
 
   const toolContext = computed<ToolContext>(() => ({
     fileOpener: {
@@ -255,10 +348,18 @@
 
         // Clear the restored state + remove dimming
         const newMap = new Map(restoredCheckpoints.value);
+        // Remove tool_use IDs of the checkpoint edits from the reverted set
+        const idsToRemove = savedEdits.filter(e => e.toolUseId).map(e => e.toolUseId!);
         newMap.delete(messageIndex);
         restoredCheckpoints.value = newMap;
         restoredAtIndex.value = null;
         hasActiveRevert.value = false;
+        if (idsToRemove.length > 0) {
+          const newIds = new Set(revertedToolUseIds.value);
+          for (const id of idsToRemove) newIds.delete(id);
+          revertedToolUseIds.value = newIds;
+        }
+        persistRevertState();
 
         let redoMsg: string;
         if (reapplyFailed > 0) {
@@ -303,12 +404,14 @@
               editType: 'edit',
               oldString: input.old_string,
               newString: input.new_string,
+              toolUseId: block.id,
             });
           } else if (name === 'Write') {
             editsToRevert.push({
               filePath: input.file_path,
               editType: 'write',
               fileContents: input.content,
+              toolUseId: block.id,
             });
           }
         }
@@ -392,8 +495,16 @@
         newMap.set(messageIndex, successfulReverts);
         restoredCheckpoints.value = newMap;
         hasActiveRevert.value = true;
+
+        // Add all successfully reverted tool_use IDs to the persistent set
+        const newIds = new Set(revertedToolUseIds.value);
+        for (const edit of successfulReverts) {
+          if (edit.toolUseId) newIds.add(edit.toolUseId);
+        }
+        revertedToolUseIds.value = newIds;
       }
       restoredAtIndex.value = messageIndex;
+      persistRevertState();
 
       if (reverted > 0 || failed > 0) {
         let msg: string;
@@ -411,6 +522,8 @@
       return restoredAtIndex.value === messageIndex;
     },
     restoredAtIndex: restoredAtIndex.value,
+    revertedToolUseIds: revertedToolUseIds.value,
+    setToolUseReverted,
     editAndRestart: async (messageIndex: number, newContent: string) => {
       // Use raw Session object directly (has truncateMessagesAfter + send)
       const rawSession = activeSessionRaw.value;
@@ -428,6 +541,9 @@
       // Clear restore state
       restoredAtIndex.value = null;
       restoredCheckpoints.value = new Map();
+      revertedToolUseIds.value = new Set();
+      hasActiveRevert.value = false;
+      persistRevertState();
 
       // Send the edited message as new
       try {
@@ -627,12 +743,14 @@
   }
 
   // Save/restore checkpoint state per session so gray persists across tab switches
+  // Also loads persisted state from localStorage when no in-memory state exists
   watch(() => activeSessionRaw.value, (newRaw) => {
     // Save current state for the session we're leaving
     if (previousRawSession) {
       savedRestoreStates.set(previousRawSession, {
         atIndex: restoredAtIndex.value,
         checkpoints: new Map(restoredCheckpoints.value),
+        revertedIds: new Set(revertedToolUseIds.value),
       });
     }
     // Restore saved state for the session we're entering
@@ -640,9 +758,19 @@
     if (saved) {
       restoredAtIndex.value = saved.atIndex;
       restoredCheckpoints.value = saved.checkpoints;
+      revertedToolUseIds.value = saved.revertedIds;
+      hasActiveRevert.value = saved.atIndex != null || saved.revertedIds.size > 0;
     } else {
-      restoredAtIndex.value = null;
-      restoredCheckpoints.value = new Map();
+      // No in-memory state — try loading from localStorage (e.g. after restart)
+      const sid = newRaw?.sessionId?.() as string | undefined;
+      if (sid) {
+        loadRevertStateForSession(sid);
+      } else {
+        restoredAtIndex.value = null;
+        restoredCheckpoints.value = new Map();
+        revertedToolUseIds.value = new Set();
+        hasActiveRevert.value = false;
+      }
     }
     previousRawSession = newRaw;
   });
@@ -799,6 +927,8 @@
       hasActiveRevert.value = false;
       restoredAtIndex.value = null;
       restoredCheckpoints.value = new Map();
+      revertedToolUseIds.value = new Set();
+      persistRevertState();
       try {
         const newSession = await runtime.sessionStore.createSession({ isExplicit: true });
         userScrolledUp = false;

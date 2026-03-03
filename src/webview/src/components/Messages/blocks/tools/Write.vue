@@ -48,7 +48,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import path from 'path-browserify-esm';
 import type { ToolContext } from '@/types/tool';
 import ToolMessageWrapper from './common/ToolMessageWrapper.vue';
@@ -65,9 +65,21 @@ interface Props {
 
 const props = defineProps<Props>();
 
-// Revert state
+// Revert state — initialise from persisted revertedToolUseIds if available
+const toolUseId = computed(() => props.toolUse?.id as string | undefined);
 const isReverted = ref(false);
 const revertLoading = ref(false);
+
+// Restore persisted revert state on mount / when context changes
+watch(
+  () => [props.context?.revertedToolUseIds, toolUseId.value] as const,
+  ([ids, id]) => {
+    if (id && ids?.has(id)) {
+      isReverted.value = true;
+    }
+  },
+  { immediate: true },
+);
 
 const showRevertButton = computed(() => {
   return !!props.toolResult && !props.toolResult.is_error && !!filePath.value;
@@ -89,6 +101,10 @@ async function handleToggleRevert() {
     );
     if (result.success) {
       isReverted.value = !isReverted.value;
+      // Persist the revert state
+      if (toolUseId.value) {
+        props.context.setToolUseReverted?.(toolUseId.value, isReverted.value);
+      }
     } else {
       await props.context.showNotification?.(`Fehler: ${result.error}`, 'error');
     }
