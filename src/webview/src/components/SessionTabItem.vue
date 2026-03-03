@@ -11,6 +11,7 @@
     ]"
     :title="fullSummary"
     @click="$emit('select')"
+    @contextmenu.prevent="showContextMenu"
   >
     <span class="tab-dot" />
     <span class="tab-label">{{ label }}</span>
@@ -21,11 +22,26 @@
     >
       <span class="codicon codicon-close" />
     </span>
+
   </button>
+
+  <!-- Context Menu (teleported to body to avoid overflow clipping) -->
+  <Teleport to="body">
+    <div v-if="contextMenuVisible" class="tab-context-menu" :style="menuStyle" @click.stop @contextmenu.prevent>
+      <button class="context-menu-item" @click.stop="closeOthers">
+        <span class="codicon codicon-close-all"></span>
+        <span>Andere Tabs schließen</span>
+      </button>
+      <button class="context-menu-item" @click.stop="emitClose">
+        <span class="codicon codicon-close"></span>
+        <span>Diesen Tab schließen</span>
+      </button>
+    </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
 import { useSignal } from '@gn8/alien-signals-vue';
 import type { Session } from '../core/Session';
 
@@ -34,10 +50,40 @@ const props = defineProps<{
   isActive: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'select'): void;
   (e: 'close'): void;
+  (e: 'closeOthers'): void;
 }>();
+
+// Context menu
+const contextMenuVisible = ref(false);
+const menuStyle = ref({ top: '0px', left: '0px' });
+
+function showContextMenu(event: MouseEvent) {
+  menuStyle.value = { top: `${event.clientY}px`, left: `${event.clientX}px` };
+  contextMenuVisible.value = true;
+  // Close on next click anywhere
+  setTimeout(() => document.addEventListener('click', hideContextMenu, { once: true }), 0);
+}
+
+function hideContextMenu() {
+  contextMenuVisible.value = false;
+}
+
+function closeOthers() {
+  contextMenuVisible.value = false;
+  emit('closeOthers');
+}
+
+function emitClose() {
+  contextMenuVisible.value = false;
+  emit('close');
+}
+
+onUnmounted(() => {
+  document.removeEventListener('click', hideContextMenu);
+});
 
 // Bridge alien-signals to Vue refs for reactivity
 const busy = useSignal(props.session.busy);
@@ -170,5 +216,46 @@ const label = computed(() => {
 
 .tab-close .codicon {
   font-size: 10px;
+}
+
+
+</style>
+
+<!-- Unscoped styles for teleported context menu -->
+<style>
+.tab-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 180px;
+  padding: 4px 0;
+  background-color: var(--vscode-menu-background);
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.tab-context-menu .context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 12px;
+  background: transparent;
+  border: none;
+  color: var(--vscode-menu-foreground);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tab-context-menu .context-menu-item:hover {
+  background-color: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+}
+
+.tab-context-menu .context-menu-item .codicon {
+  font-size: 12px;
+  opacity: 0.8;
 }
 </style>

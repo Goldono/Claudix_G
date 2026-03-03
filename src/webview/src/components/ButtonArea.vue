@@ -15,16 +15,16 @@
           @model-select="(modelId) => emit('modelSelect', modelId)"
         />
 
-        <!-- Plan Mode Indicator -->
+        <!-- Plan Mode Toggle -->
         <div
-          v-if="isInPlanMode"
           class="plan-mode-badge"
-          @click="emit('exitPlanMode')"
-          title="Plan-Modus aktiv — Klicken zum Verlassen"
+          :class="{ 'plan-mode-active': isInPlanMode }"
+          @click="isInPlanMode ? emit('exitPlanMode') : emit('enterPlanMode')"
+          :title="isInPlanMode ? 'Plan-Modus aktiv — Klicken zum Verlassen' : 'Plan-Modus aktivieren'"
         >
           <span class="codicon codicon-tasklist plan-badge-icon"></span>
           <span class="plan-badge-label">Plan</span>
-          <span class="codicon codicon-close plan-badge-close"></span>
+          <span v-if="isInPlanMode" class="codicon codicon-close plan-badge-close"></span>
         </div>
       </div>
 
@@ -178,6 +178,7 @@ interface Emits {
   (e: 'modeSelect', mode: PermissionMode): void
   (e: 'modelSelect', modelId: string): void
   (e: 'exitPlanMode'): void
+  (e: 'enterPlanMode'): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -427,21 +428,33 @@ function handleCommandKeydown(event: KeyboardEvent) {
 }
 
 
-/* Plan Mode Badge */
+/* Plan Mode Badge — always visible, toggle between inactive/active */
 .plan-mode-badge {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 1px 6px 1px 4px;
-  background-color: color-mix(in srgb, var(--vscode-textLink-foreground) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground) 30%, transparent);
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 3px;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
   flex-shrink: 0;
+  opacity: 0.45;
 }
 
 .plan-mode-badge:hover {
+  opacity: 0.8;
+}
+
+/* Active state */
+.plan-mode-badge.plan-mode-active {
+  background-color: color-mix(in srgb, var(--vscode-textLink-foreground) 15%, transparent);
+  border-color: color-mix(in srgb, var(--vscode-textLink-foreground) 30%, transparent);
+  opacity: 1;
+}
+
+.plan-mode-badge.plan-mode-active:hover {
   background-color: color-mix(in srgb, var(--vscode-textLink-foreground) 25%, transparent);
 }
 
@@ -463,7 +476,7 @@ function handleCommandKeydown(event: KeyboardEvent) {
   transition: opacity 0.15s ease;
 }
 
-.plan-mode-badge:hover .plan-badge-close {
+.plan-mode-badge.plan-mode-active:hover .plan-badge-close {
   opacity: 1;
 }
 

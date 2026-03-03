@@ -7,6 +7,7 @@
       :active-session="activeSessionRawValue"
       @select="handleTabSelect"
       @close="handleTabClose"
+      @close-others="handleCloseOtherTabs"
       @restore="handleRestoreSession"
     />
 
@@ -111,6 +112,7 @@
             @mode-select="handleModeSelect"
             @model-select="handleModelSelect"
             @exit-plan-mode="handleExitPlanMode"
+            @enter-plan-mode="handleEnterPlanMode"
           />
         </div>
       <!-- </div> -->
@@ -529,58 +531,60 @@
     () => session.value?.permissionMode.value ?? 'default'
   );
 
-  // Manual override for plan mode (set to true when badge X is clicked)
-  const planModeManualExit = ref(false);
-  // Track how many EnterPlanMode calls existed when manual exit was triggered
-  const exitAtEnterCount = ref(-1);
+  // Plan mode: persisted per session in localStorage
+  const PLAN_MODE_KEY = 'claudix-plan-mode';
+  const isInPlanMode = ref(false);
+  let planModeLastMsgCount = 0;
+  let planModeInitialized = false;
 
-  // Count EnterPlanMode calls in messages (helper)
-  function countEnterPlanModes(): number {
-    let count = 0;
-    const msgs = messages.value;
-    for (const msg of msgs) {
-      const content = msg?.message?.content;
-      if (!Array.isArray(content)) continue;
-      for (const wrapper of content) {
-        if (wrapper?.content?.type === 'tool_use' && wrapper.content.name === 'EnterPlanMode') {
-          count++;
-        }
-      }
-    }
-    return count;
+  function setPlanMode(value: boolean) {
+    isInPlanMode.value = value;
+    // Persist to localStorage keyed by session ID
+    const sid = session.value?.sessionId();
+    if (!sid) return;
+    try {
+      const stored = localStorage.getItem(PLAN_MODE_KEY);
+      const map: Record<string, boolean> = stored ? JSON.parse(stored) : {};
+      if (value) { map[sid] = true; } else { delete map[sid]; }
+      localStorage.setItem(PLAN_MODE_KEY, JSON.stringify(map));
+    } catch { /* ignore */ }
   }
 
-  // Detect plan mode by scanning messages for EnterPlanMode/ExitPlanMode tool calls
-  const isInPlanMode = computed(() => {
-    const msgs = messages.value;
-    // Find the last plan-relevant tool call
-    let lastEnterPlanCount = 0;
-    let inPlan = false;
-    for (let i = msgs.length - 1; i >= 0; i--) {
+  // Live detection: only scan NEW messages (not history)
+  watch(messages, (msgs) => {
+    if (!planModeInitialized) {
+      planModeInitialized = true;
+      planModeLastMsgCount = msgs.length;
+      return;
+    }
+    for (let i = planModeLastMsgCount; i < msgs.length; i++) {
       const content = msgs[i]?.message?.content;
       if (!Array.isArray(content)) continue;
       for (const wrapper of content) {
         const block = wrapper?.content;
         if (block?.type === 'tool_use') {
-          if (block.name === 'ExitPlanMode') return false;
-          if (block.name === 'EnterPlanMode') {
-            inPlan = true;
-            break;
-          }
+          if (block.name === 'EnterPlanMode') { setPlanMode(true); }
+          if (block.name === 'ExitPlanMode') { setPlanMode(false); }
         }
       }
-      if (inPlan) break;
     }
-    if (!inPlan) return false;
-    // Check manual exit: only honor if no NEW EnterPlanMode since the exit
-    if (planModeManualExit.value) {
-      const currentCount = countEnterPlanModes();
-      if (currentCount <= exitAtEnterCount.value) return false;
-      // A new EnterPlanMode appeared since manual exit → reset
-      planModeManualExit.value = false;
-    }
-    return true;
+    planModeLastMsgCount = msgs.length;
   });
+
+  // Session switch: load persisted state from localStorage
+  watch(() => activeSessionRaw.value, () => {
+    const sid = session.value?.sessionId();
+    let stored = false;
+    if (sid) {
+      try {
+        const raw = localStorage.getItem(PLAN_MODE_KEY);
+        if (raw) { stored = JSON.parse(raw)[sid] === true; }
+      } catch { /* ignore */ }
+    }
+    isInPlanMode.value = stored;
+    planModeInitialized = false;
+    planModeLastMsgCount = 0;
+  }, { immediate: true });
   const permissionRequests = computed(
     () => session.value?.permissionRequests.value ?? []
   );
@@ -761,6 +765,18 @@
     }
   }
 
+  function handleCloseOtherTabs(keepSession: Session) {
+    const visible = runtime.sessionStore.visibleSessions();
+    for (const s of visible) {
+      if (s === keepSession) continue;
+      const sid = s.sessionId();
+      if (sid) {
+        runtime.sessionStore.hideSession(sid);
+      }
+    }
+    runtime.sessionStore.setActiveSession(keepSession);
+  }
+
   function handleRestoreSession(targetSession: Session) {
     const sessionId = targetSession.sessionId();
     if (sessionId) {
@@ -888,13 +904,18 @@
   }
 
   async function handleExitPlanMode() {
-    // Immediately hide the badge
-    exitAtEnterCount.value = countEnterPlanModes();
-    planModeManualExit.value = true;
-    // Silently switch permission mode back — no chat message needed
+    setPlanMode(false);
     const s = session.value;
     if (s) {
       await s.setPermissionMode('bypassPermissions' as PermissionMode);
+    }
+  }
+
+  async function handleEnterPlanMode() {
+    setPlanMode(true);
+    const s = session.value;
+    if (s) {
+      await s.setPermissionMode('plan' as PermissionMode);
     }
   }
 

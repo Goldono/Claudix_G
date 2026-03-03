@@ -60,6 +60,7 @@
       @mode-select="(mode) => emit('modeSelect', mode)"
       @model-select="(modelId) => emit('modelSelect', modelId)"
       @exit-plan-mode="() => emit('exitPlanMode')"
+      @enter-plan-mode="() => emit('enterPlanMode')"
     />
 
     <!-- Slash Command Dropdown -->
@@ -182,6 +183,7 @@ interface Emits {
   (e: 'modelSelect', modelId: string): void
   (e: 'setAttachments', attachments: AttachmentItem[]): void
   (e: 'exitPlanMode'): void
+  (e: 'enterPlanMode'): void
 }
 
 const props = withDefaults(defineProps<Props>(), {

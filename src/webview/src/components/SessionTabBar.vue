@@ -9,6 +9,7 @@
           :is-active="session === activeSession"
           @select="$emit('select', session)"
           @close="$emit('close', session)"
+          @close-others="$emit('closeOthers', session)"
         />
       </div>
     </div>
@@ -57,6 +58,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', session: Session): void;
   (e: 'close', session: Session): void;
+  (e: 'closeOthers', session: Session): void;
   (e: 'restore', session: Session): void;
 }>();
 
