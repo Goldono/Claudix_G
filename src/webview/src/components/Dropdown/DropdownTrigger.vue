@@ -12,7 +12,10 @@
         <span class="codicon codicon-chevron-down"></span>
       </slot>
     </div>
+  </div>
 
+  <!-- Teleport popover + backdrop to body so parent overflow:hidden can't clip it -->
+  <Teleport to="body">
     <div
       v-if="isVisible"
       ref="dropdownRef"
@@ -28,7 +31,7 @@
         :style="containerStyle"
         @keydown.escape="closeDropdown"
       >
-        <!-- Search（） -->
+        <!-- Search -->
         <div v-if="showSearch" class="search-input-section">
           <input
             ref="searchInput"
@@ -42,7 +45,7 @@
         <!-- slot -->
         <slot name="header" />
 
-        <!-- （ + ） -->
+        <!-- Scrollable content -->
         <ScrollableElement ref="scrollableRef">
           <div class="menu-content">
             <slot
@@ -58,13 +61,12 @@
       </div>
     </div>
 
-  </div>
-
-  <div
-    v-if="isVisible && closeOnClickOutside"
-    class="dropdown-trigger-backdrop"
-    @click="closeDropdown"
-  ></div>
+    <div
+      v-if="isVisible && closeOnClickOutside"
+      class="dropdown-trigger-backdrop"
+      @click="closeDropdown"
+    ></div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -129,7 +131,7 @@ const searchTerm = ref('')
 
 const dropdownStyle = computed(() => {
   const style: any = {
-    position: 'absolute',
+    position: 'fixed',
     minWidth: '140px',
     maxWidth: '240px',
     width: props.width ? `${props.width}px` : 'auto',
@@ -142,47 +144,39 @@ const dropdownStyle = computed(() => {
   const viewportHeight = window.innerHeight
   const triggerRect = triggerRef.value.getBoundingClientRect()
 
- // dropdown
+ // dropdown height estimate
   const searchHeight = props.showSearch ? 32 : 0
   const footerHeight = 25
- const dropdownTotalHeight = searchHeight + 240 + footerHeight // 240px
+ const dropdownTotalHeight = searchHeight + 240 + footerHeight
 
   const spaceAbove = triggerRect.top
   const spaceBelow = viewportHeight - triggerRect.bottom
 
   const showBelow = spaceBelow >= dropdownTotalHeight || spaceBelow > spaceAbove
 
- // -
+  // Fixed positioning: use viewport coordinates directly
   if (showBelow) {
-    style.top = '100%'
-    style.marginTop = '4px'
+    style.top = `${triggerRect.bottom + 4}px`
   } else {
-    style.bottom = '100%'
+    style.bottom = `${viewportHeight - triggerRect.top + 4}px`
     style.top = 'auto'
-    style.marginBottom = '4px'
   }
 
- // dropdown （）
- const dropdownWidth = props.width || 240 // props.width
-
- // -
+  // Horizontal alignment
+ const dropdownWidth = props.width || 240
  const padding = 8
 
- // align
   let leftPosition = 0
 
   switch (props.align) {
     case 'right':
- // ：dropdown
       leftPosition = triggerRect.right - dropdownWidth
       break
     case 'center':
- // ：dropdown
       leftPosition = triggerRect.left + (triggerRect.width / 2) - (dropdownWidth / 2)
       break
     case 'left':
     default:
- // ：dropdown
       leftPosition = triggerRect.left
       break
   }
@@ -195,8 +189,7 @@ const dropdownStyle = computed(() => {
     leftPosition = viewportWidth - dropdownWidth - padding
   }
 
-  const relativeLeft = leftPosition - triggerRect.left
-  style.left = `${relativeLeft}px`
+  style.left = `${leftPosition}px`
 
   return style
 })
@@ -250,7 +243,9 @@ function handleClickOutside(event: MouseEvent) {
 
   const target = event.target as HTMLElement
 
+  // Check if click is inside trigger or dropdown (teleported)
   if (containerRef.value?.contains(target)) return
+  if (dropdownRef.value?.contains(target)) return
 
   closeDropdown()
 }
@@ -287,7 +282,6 @@ function ensureSelectedVisible() {
   const wrapperRect = wrapper.getBoundingClientRect()
   const currentTop = wrapperRect.top - contentRect.top
 
- // offsetTop content
   let offsetTop = 0
   let el: HTMLElement | null = selectedEl
   while (el && el !== content) {
@@ -332,12 +326,8 @@ defineExpose({
 })
 </script>
 
-<style scoped>
-.dropdown-trigger-container {
-  position: relative;
-  display: inline-block;
-}
-
+<style>
+/* These styles are NOT scoped because the popover is teleported to body */
 .dropdown-trigger-popover {
   box-sizing: border-box;
   padding: 0;
@@ -377,7 +367,7 @@ defineExpose({
   background: transparent;
 }
 
-.search-input-section {
+.dropdown-trigger-popover .search-input-section {
   display: flex;
   gap: 4px;
   align-items: center;
@@ -388,7 +378,7 @@ defineExpose({
   margin: 2px;
 }
 
-.context-search-input {
+.dropdown-trigger-popover .context-search-input {
   font-size: 12px;
   line-height: 15px;
   border-radius: 3px;
@@ -402,14 +392,21 @@ defineExpose({
   box-sizing: border-box;
 }
 
-.context-search-input::placeholder {
+.dropdown-trigger-popover .context-search-input::placeholder {
   opacity: 0.5;
 }
 
-.menu-content {
+.dropdown-trigger-popover .menu-content {
   padding: 0.125rem;
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
+}
+</style>
+
+<style scoped>
+.dropdown-trigger-container {
+  position: relative;
+  display: inline-block;
 }
 </style>

@@ -284,7 +284,7 @@ export class Session {
       opts?.forkSession
     );
 
-    void this.readMessages(stream);
+    void this.readMessages(stream, channelId);
     return channelId;
   }
 
@@ -432,16 +432,25 @@ export class Session {
     }
   }
 
-  private async readMessages(stream: AsyncIterable<any>): Promise<void> {
+  private async readMessages(stream: AsyncIterable<any>, myChannelId?: string): Promise<void> {
     try {
       for await (const event of stream) {
         this.processIncomingMessage(event);
       }
     } catch (error) {
-      this.error(error instanceof Error ? error.message : String(error));
-      this.busy(false);
+      // Only set error/busy if this is still the active channel
+      // (a newer channel may have replaced us during rewind/restart)
+      if (!myChannelId || this.claudeChannelId() === myChannelId) {
+        this.error(error instanceof Error ? error.message : String(error));
+        this.busy(false);
+      }
     } finally {
-      this.claudeChannelId(undefined);
+      // Only clear channelId if this readMessages instance still owns it.
+      // Without this check, an old stream ending after a rewind/restart
+      // would wipe the NEW channel's ID → messages never arrive.
+      if (!myChannelId || this.claudeChannelId() === myChannelId) {
+        this.claudeChannelId(undefined);
+      }
     }
   }
 
