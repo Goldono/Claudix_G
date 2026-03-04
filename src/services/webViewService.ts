@@ -169,7 +169,7 @@ export class WebViewService implements IWebViewService {
 		this.logService.info(`[WebViewService] WebView : page=${page}, id=${key}`);
 
 		const panel = vscode.window.createWebviewPanel(
-			'claudix.pageView',
+			'optimo.pageView',
 			title,
 			vscode.ViewColumn.Active,
 			{
@@ -264,7 +264,7 @@ export class WebViewService implements IWebViewService {
 
 		const bootstrapScript = `
     <script nonce="${nonce}">
-      window.CLAUDIX_BOOTSTRAP = ${JSON.stringify(bootstrap)};
+      window.OPTIMO_BOOTSTRAP = ${JSON.stringify(bootstrap)};
     </script>`;
 
 		return `<!DOCTYPE html>
@@ -318,7 +318,7 @@ export class WebViewService implements IWebViewService {
 
 		const bootstrapScript = `
     <script nonce="${nonce}">
-      window.CLAUDIX_BOOTSTRAP = ${JSON.stringify(bootstrap)};
+      window.OPTIMO_BOOTSTRAP = ${JSON.stringify(bootstrap)};
     </script>`;
 
 		return `<!DOCTYPE html>

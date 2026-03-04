@@ -10,7 +10,7 @@ export interface PermissionEvent {
   permissionRequest: PermissionRequest;
 }
 
-const HIDDEN_STORAGE_KEY = 'claudix-hidden-session-ids';
+const HIDDEN_STORAGE_KEY = 'optimo-hidden-session-ids';
 
 export class SessionStore {
   readonly sessions = signal<Session[]>([]);

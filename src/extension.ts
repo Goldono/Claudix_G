@@ -25,7 +25,7 @@ export function activate(context: vscode.ExtensionContext) {
 		const logService = accessor.get(ILogService);
 		logService.info('');
 		logService.info('╔════════════════════════════════════════╗');
-		logService.info('║    Claude Chat Extension Activated     ║');
+		logService.info('║   Claude Code Optimo Activated          ║');
 		logService.info('╚════════════════════════════════════════╝');
 		logService.info('');
 	});
@@ -39,7 +39,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 		// Register WebView View Provider
 		const webviewProvider = vscode.window.registerWebviewViewProvider(
-			'claudix.chatView',
+			'optimo.chatView',
 			webViewService,
 			{
 				webviewOptions: {
@@ -65,13 +65,13 @@ export function activate(context: vscode.ExtensionContext) {
 		// Register disposables
 		context.subscriptions.push(webviewProvider);
 		context.subscriptions.push(
-			vscode.commands.registerCommand('claudix.openSettings', async () => {
+			vscode.commands.registerCommand('optimo.openSettings', async () => {
 				await instantiationService.invokeFunction(accessorInner => {
 					const webViewServiceInner = accessorInner.get(IWebViewService);
 					const logServiceInner = accessorInner.get(ILogService);
 					try {
 						// Settings page is a singleton, no instanceId is passed, using page as key
-						webViewServiceInner.openEditorPage('settings', 'Claudix Settings');
+						webViewServiceInner.openEditorPage('settings', 'Claude Code Optimo Settings');
 					} catch (error) {
 						logServiceInner.error('[Command] Failed to open Settings page', error);
 					}
@@ -85,8 +85,8 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	// 6. Register commands
-	const showChatCommand = vscode.commands.registerCommand('claudix.showChat', () => {
-		vscode.commands.executeCommand('claudix.chatView.focus');
+	const showChatCommand = vscode.commands.registerCommand('optimo.showChat', () => {
+		vscode.commands.executeCommand('optimo.chatView.focus');
 	});
 
 	context.subscriptions.push(showChatCommand);

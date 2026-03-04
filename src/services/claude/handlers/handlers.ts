@@ -78,7 +78,7 @@ export async function handleInit(
  // TODO: AuthManager
     // const authStatus = null;
 
-    const modelSetting = configService.getValue<string>('claudix.selectedModel') || 'default';
+    const modelSetting = configService.getValue<string>('optimo.selectedModel') || 'default';
 
     const defaultCwd = workspaceService.getDefaultWorkspaceFolder()?.uri.fsPath || process.cwd();
 
@@ -271,7 +271,7 @@ export async function handleNewConversationTab(
     const { logService } = context;
 
     try {
-        await vscode.commands.executeCommand("claudix.chatView.focus");
+        await vscode.commands.executeCommand("optimo.chatView.focus");
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         logService.warn(`Failed to focus chat view: ${message}`);
@@ -686,7 +686,7 @@ export async function handleOpenConfigFile(
     try {
  // VS Code
         if (configType === "vscode") {
-            await vscode.commands.executeCommand('workbench.action.openSettings', 'claudix');
+            await vscode.commands.executeCommand('workbench.action.openSettings', 'optimo');
         }
         else {
             const configPath = getConfigFilePath(configType);
@@ -718,7 +718,7 @@ export async function handleOpenClaudeInTerminal(
         });
 
         terminal.show();
-        terminal.sendText("claude --help");
+        terminal.sendText("claude");
 
         return { type: "open_claude_in_terminal_response" };
     } catch (error) {

@@ -38,7 +38,7 @@ import { RuntimeKey } from './composables/runtimeContext';
 
 type PageName = 'chat' | 'settings';
 
-const bootstrap = window.CLAUDIX_BOOTSTRAP;
+const bootstrap = window.OPTIMO_BOOTSTRAP;
 const initialPage = (bootstrap?.page as PageName | undefined) ?? 'chat';
 const currentPage = ref<PageName>(initialPage);
 const pageAnimation = ref({ opacity: 1, x: 0 });

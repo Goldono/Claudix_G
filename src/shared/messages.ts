@@ -379,7 +379,7 @@ export interface CheckSnapshotOwnershipResponse {
 }
 
 /**
- * Write lines to the Claudix output channel and optionally show it
+ * Write lines to the Claude Code Optimo output channel and optionally show it
  */
 export interface WriteRestoreLogRequest {
     type: "write_restore_log";
@@ -393,7 +393,7 @@ export interface WriteRestoreLogResponse {
 }
 
 /**
- * Show the Claudix output channel
+ * Show the Claude Code Optimo output channel
  */
 export interface ShowOutputChannelRequest {
     type: "show_output_channel";

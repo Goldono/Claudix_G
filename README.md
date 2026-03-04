@@ -1,23 +1,17 @@
-# Claudix
-
-English | [简体中文](README_CN.md)
+# Claude Code Optimo
 
 ![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-blue?logo=visual-studio-code)
 ![Built with TypeScript](https://img.shields.io/badge/Built%20with-TypeScript-blue?logo=typescript)
 ![License](https://img.shields.io/badge/License-AGPL--3.0-blue)
-
-[![Mentioned in Awesome Claude Code](https://img.shields.io/badge/Awesome-Claude%20Code-fc60a8)](https://github.com/hesreallyhim/awesome-claude-code)
 ![Powered by Claude Agent SDK](https://img.shields.io/badge/Powered%20by-Claude%20Agent%20SDK-orange)
 
-A VSCode extension that brings Claude Code directly into your editor.
+> **Unofficial community project** — This extension is not made by or affiliated with Anthropic. It uses the official [Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk) to connect to Claude Code.
 
-## Overview
-
-Claude Code integrates Claude AI into VSCode, providing an interactive coding assistant with conversation history, tool integration, and intelligent code understanding.
+A VSCode extension that brings Claude Code directly into your editor with an enhanced user interface.
 
 ## Features
 
-- Interactive chat interface with Claude Code
+- Interactive chat interface with Claude Code inside VSCode
 - Session management and conversation history
 - Intelligent file operations and code analysis
 - Terminal command execution
@@ -25,10 +19,29 @@ Claude Code integrates Claude AI into VSCode, providing an interactive coding as
 - Support for multiple Claude models
 - Real-time streaming responses
 - Syntax highlighting and markdown rendering
+- Plan mode for complex tasks
+
+## Prerequisites
+
+**Claude Code must be installed on your system.** This extension does not bundle Claude Code — it connects to your existing installation.
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+After installation, run `claude` in your terminal once to log in to your Anthropic account.
+
+For more details, see the [official Claude Code documentation](https://docs.anthropic.com/en/docs/build-with-claude/claude-code/overview).
 
 ## Installation
 
+### From Source
+
 ```bash
+# Clone the repository
+git clone https://github.com/Goldono/claude-code-optimo.git
+cd claude-code-optimo
+
 # Install dependencies
 pnpm install
 
@@ -39,13 +52,21 @@ pnpm build
 pnpm package
 ```
 
-Install the generated `.vsix` file in VSCode through Extensions > Install from VSIX.
+Install the generated `.vsix` file in VSCode through **Extensions > Install from VSIX**.
+
+## Usage
+
+1. Make sure Claude Code is installed and you are logged in (`claude` in terminal)
+2. Open the Claude Code Optimo sidebar from the activity bar
+3. Start a new conversation or continue from history
+4. Ask questions, request code changes, or get help with your project
+5. Review and approve tool operations when prompted
+
+If you are not logged in, click the **"Log in to Claude Code"** button in the sidebar — it will open a terminal where you can authenticate.
 
 ## Development
 
 ### Running in Development Mode
-
-Start the development server with hot module replacement:
 
 ```bash
 pnpm dev
@@ -54,23 +75,6 @@ pnpm dev
 This will concurrently start:
 - Vite dev server (port 5173) for the webview
 - esbuild watcher for the extension
-
-### Debugging
-
-Open the project in VSCode and use the debugging configurations:
-
-#### Run Extension
-Full build mode without HMR. The extension will be built from scratch before launching.
-
-- Press `F5` or select "Run Extension" from the debug panel
-- Suitable for production-like testing
-
-#### Run Extension (HMR)
-Development mode with hot module replacement for the webview.
-
-- Select "Run Extension (HMR)" from the debug panel
-- Webview changes will reload automatically without restarting the extension
-- Faster iteration during development
 
 ### Build Commands
 
@@ -91,26 +95,24 @@ pnpm test
 pnpm typecheck:all
 ```
 
-## Usage
-
-1. Open the Claude Code sidebar from the activity bar
-2. Start a new conversation or continue from history
-3. Ask questions, request code changes, or get help with your project
-4. Review and approve tool operations when prompted
-
 ## Requirements
 
 - VSCode >= 1.98.0
 - Node.js >= 18.0.0
+- Claude Code (installed globally via npm)
+
+## Credits
+
+This project is a fork of [Claudix](https://github.com/Haleclipse/Claudix) by Haleclipse, with significant modifications and improvements.
 
 ## Contributing
 
-Contributions are welcome! If you would like to contribute to this project, please open an issue first to discuss your ideas or proposed changes.
+Contributions are welcome! Please open an issue first to discuss your ideas or proposed changes.
 
 ## License
 
-AGPL-3.0
+[AGPL-3.0](LICENSE)
 
-## Star History
+## Disclaimer
 
-[![Star History](https://api.star-history.com/svg?repos=Goldono/Claudix_G&type=date&legend=top-left)](https://www.star-history.com/#Goldono/Claudix_G&type=date&legend=top-left)
+This is an independent community project. "Claude" and "Claude Code" are trademarks of Anthropic, PBC. This project is not endorsed by, affiliated with, or sponsored by Anthropic.

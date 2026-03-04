@@ -1,7 +1,7 @@
 {
-  "name": "claudix-vscode",
-  "displayName": "Claudix - Claude Code for VSCode",
-  "description": "Claude Code for VSCode. Bring the power of Claude AI assistant directly into your coding environment.",
+  "name": "claude-code-optimo",
+  "displayName": "Claude Code Optimo",
+  "description": "Unofficial community VSCode extension for Claude Code. Brings the power of Claude AI assistant directly into your editor. Requires Claude Code to be installed separately.",
   "version": "0.3.9",
   "publisher": "Goldono",
   "engines": {
@@ -19,14 +19,14 @@
   "main": "./dist/extension.cjs",
   "contributes": {
     "configuration": {
-      "title": "Claudix",
+      "title": "Claude Code Optimo",
       "properties": {
-        "claudix.selectedModel": {
+        "optimo.selectedModel": {
           "type": "string",
           "default": "default",
           "description": "The AI model for Claude Code"
         },
-        "claudix.environmentVariables": {
+        "optimo.environmentVariables": {
           "type": "array",
           "items": {
             "type": "object",
@@ -53,30 +53,30 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "claudix-chat-sidebar",
-          "title": "Claudix",
+          "id": "optimo-chat-sidebar",
+          "title": "Claude Code Optimo",
           "icon": "resources/claude-logo.svg"
         }
       ]
     },
     "views": {
-      "claudix-chat-sidebar": [
+      "optimo-chat-sidebar": [
         {
           "icon": "resources/claude-logo.svg",
           "type": "webview",
-          "id": "claudix.chatView",
-          "name": "Claudix"
+          "id": "optimo.chatView",
+          "name": "Claude Code Optimo"
         }
       ]
     },
     "commands": [
       {
-        "command": "claudix.showChat",
-        "title": "Show Claudix"
+        "command": "optimo.showChat",
+        "title": "Show Claude Code Optimo"
       },
       {
-        "command": "claudix.openSettings",
-        "title": "Claudix: Open Settings"
+        "command": "optimo.openSettings",
+        "title": "Claude Code Optimo: Open Settings"
       }
     ]
   },
@@ -97,7 +97,7 @@
     "prepackage": "pnpm run build && cp README.md README.md.bak && sed -i '' 's|https://awesome.re/mentioned-badge.svg|assets/mentioned-badge.png|g' README.md",
     "package": "vsce package --no-dependencies",
     "postpackage": "mv README.md.bak README.md",
-    "deploy": "pnpm run build && node -e \"const fs=require('fs');const r=fs.readFileSync('README.md','utf8');fs.writeFileSync('README.md',r.replace('https://awesome.re/mentioned-badge.svg','assets/mentioned-badge.png'));\" && pnpm exec vsce package --no-dependencies && node -e \"const fs=require('fs');const r=fs.readFileSync('README.md','utf8');fs.writeFileSync('README.md',r.replace('assets/mentioned-badge.png','https://awesome.re/mentioned-badge.svg'));\" && code --install-extension claudix-vscode-0.3.9.vsix --force",
+    "deploy": "pnpm run build && pnpm exec vsce package --no-dependencies && code --install-extension claude-code-optimo-0.3.9.vsix --force",
     "lint": "eslint src --ext ts",
     "lint:fix": "eslint src --ext ts --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,vue}\" && eslint src --ext ts,tsx,vue --fix"
@@ -150,7 +150,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Goldono/Claudix_G"
+    "url": "https://github.com/Goldono/claude-code-optimo"
   },
   "license": "AGPL-3.0"
 }

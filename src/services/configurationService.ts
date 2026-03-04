@@ -13,7 +13,7 @@ export interface IConfigurationService {
 
 	/**
 	 * Get configuration value
-	 * @param section Configuration path, supports "scope.key" format (e.g. "claudix.environmentVariables")
+	 * @param section Configuration path, supports "scope.key" format (e.g. "optimo.environmentVariables")
 	 * @param defaultValue Default value
 	 */
 	getValue<T>(section: string, defaultValue?: T): T | undefined;
@@ -40,7 +40,7 @@ export class ConfigurationService implements IConfigurationService {
 	}
 
 	getValue<T>(section: string, defaultValue?: T): T | undefined {
-		// Supports "scope.key" format, e.g. "claudix.environmentVariables"
+		// Supports "scope.key" format, e.g. "optimo.environmentVariables"
 		const parts = section.split('.');
 		if (parts.length > 1) {
 			const scope = parts[0];
