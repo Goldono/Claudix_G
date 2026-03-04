@@ -70,10 +70,7 @@ import {
     handleGetUsageInfo,
     handleReadFileContents,
     handleShowEditDiff,
-    // handleOpenClaudeInTerminal,
-    // handleGetAuthStatus,
-    // handleLogin,
-    // handleSubmitOAuthCode,
+    handleOpenClaudeInTerminal,
 } from './handlers/handlers';
 
 export const IClaudeAgentService = createDecorator<IClaudeAgentService>('claudeAgentService');
@@ -192,6 +189,9 @@ export class ClaudeAgentService implements IClaudeAgentService {
 
  // Thinking Level
     private thinkingLevel: string = 'default_on';
+
+    // Track last user message text per channel for plan-mode auto-stop detection
+    private lastUserMessageText = new Map<string, string>();
 
     constructor(
         @ILogService private readonly logService: ILogService,
@@ -346,16 +346,14 @@ export class ClaudeAgentService implements IClaudeAgentService {
         try {
  // 1.
  this.logService.info('📝 1: ');
-            const inputStream = new AsyncStream<SDKUserMessage>();
+            let inputStream = new AsyncStream<SDKUserMessage>();
  this.logService.info(' ✓ ');
 
- // 2. spawnClaude
+ // 2. spawnClaude (with session-not-found fallback)
             this.logService.info('');
  this.logService.info('📝 2: spawnClaude()');
-            const query = await this.spawnClaude(
-                inputStream,
-                resume,
-                async (toolName, input, options) => {
+
+            const canUseToolFn = async (toolName: string, input: any, options: any) => {
  // ： RPC WebView
  this.logService.info(`🔧 : ${toolName}`);
                     // Auto-approve plan mode tools — no permission dialog needed
@@ -364,9 +362,23 @@ export class ClaudeAgentService implements IClaudeAgentService {
                         return { behavior: 'allow' as const, updatedInput: input };
                     }
                     if (toolName === 'ExitPlanMode') {
-                        this.logService.info(`[Permission] Auto-approved: ${toolName}`);
-                        // CRITICAL: Force launchSwarm to false so the SDK never auto-executes a plan.
-                        // Plan execution must ONLY happen when the user clicks "Execute Plan" or explicitly says so.
+                        // Check if the user explicitly asked to execute the plan
+                        const lastMsg = this.lastUserMessageText.get(channelId) || '';
+                        const userRequestedExecution = /führe den plan|execute.*plan|plan ausführen|plan starten|starte den plan/.test(lastMsg);
+
+                        if (!userRequestedExecution) {
+                            // USER DID NOT REQUEST EXECUTION — block ExitPlanMode and interrupt Claude
+                            this.logService.warn(`[Permission] BLOCKED ExitPlanMode — user did not request execution (last msg: "${lastMsg.slice(0, 80)}")`);
+                            // Interrupt Claude so it stops working
+                            this.interruptClaude(channelId).catch(() => {});
+                            return {
+                                behavior: 'deny' as const,
+                                message: 'ExitPlanMode blocked: The user has not requested plan execution. After writing the plan file, you must STOP and wait. Do NOT call ExitPlanMode. Do NOT continue working. The user will click "Execute Plan" when ready.'
+                            };
+                        }
+
+                        this.logService.info(`[Permission] Auto-approved: ${toolName} (user requested execution)`);
+                        // Force launchSwarm to false so the SDK never auto-launches agents
                         if (input && typeof input === 'object') {
                             (input as any).launchSwarm = false;
                             delete (input as any).teammateCount;
@@ -422,14 +434,30 @@ export class ClaudeAgentService implements IClaudeAgentService {
                         input,
                         options.suggestions || []
                     );
-                },
-                model,
-                cwd,
-                permissionMode,
-                maxThinkingTokens,
-                resumeSessionAt,
-                forkSession
-            );
+                };
+
+            // --- Spawn with session-not-found fallback ---
+            let query: any;
+            let usedResume = resume;
+            try {
+                query = await this.spawnClaude(
+                    inputStream, usedResume, canUseToolFn, model, cwd, permissionMode,
+                    maxThinkingTokens, resumeSessionAt, forkSession
+                );
+            } catch (spawnError: any) {
+                const errMsg = String(spawnError?.message || spawnError || '');
+                if (usedResume && (errMsg.includes('No conversation found') || errMsg.includes('No message found') || errMsg.includes('exited with code 1'))) {
+                    this.logService.warn(`[launchClaude] Session "${usedResume}" not found — retrying without resume`);
+                    inputStream = new AsyncStream<SDKUserMessage>();
+                    usedResume = null;
+                    query = await this.spawnClaude(
+                        inputStream, null, canUseToolFn, model, cwd, permissionMode,
+                        maxThinkingTokens, undefined, undefined
+                    );
+                } else {
+                    throw spawnError;
+                }
+            }
  this.logService.info(' ✓ spawnClaude() ，Query ');
 
  // 3. channels Map
@@ -441,7 +469,7 @@ export class ClaudeAgentService implements IClaudeAgentService {
             });
  this.logService.info(` ✓ Channel ， ${this.channels.size} `);
 
- // 4. ： SDK
+ // 4. Query loop with session-not-found fallback
             this.logService.info('');
  this.logService.info('📝 4: ');
             (async () => {
@@ -463,11 +491,38 @@ export class ClaudeAgentService implements IClaudeAgentService {
  this.logService.info(` ✓ Query ， ${messageCount} messages`);
                     this.closeChannel(channelId, true);
                 } catch (error) {
+                    const errStr = String(error instanceof Error ? error.message : error);
+                    // Fallback: if the query loop fails due to session-not-found, retry without resume
+                    if (usedResume && (errStr.includes('No conversation found') || errStr.includes('No message found') || errStr.includes('exited with code 1'))) {
+                        this.logService.warn(`[launchClaude] Query failed for session "${usedResume}" — starting fresh session`);
+                        try {
+                            const oldChannel = this.channels.get(channelId);
+                            if (oldChannel) { oldChannel.in.done(); this.channels.delete(channelId); }
+                            const freshInput = new AsyncStream<SDKUserMessage>();
+                            const freshQuery = await this.spawnClaude(
+                                freshInput, null, canUseToolFn, model, cwd, permissionMode,
+                                maxThinkingTokens, undefined, undefined
+                            );
+                            this.channels.set(channelId, { in: freshInput, query: freshQuery });
+                            this.logService.info(`[launchClaude] Fresh session started for channel ${channelId}`);
+                            let freshCount = 0;
+                            for await (const msg of freshQuery) {
+                                freshCount++;
+                                this.transport!.send({ type: "io_message", channelId, message: msg, done: false });
+                            }
+                            this.logService.info(`[launchClaude] Fresh query done, ${freshCount} messages`);
+                            this.closeChannel(channelId, true);
+                        } catch (retryError) {
+                            this.logService.error(`[launchClaude] Retry also failed: ${retryError}`);
+                            this.closeChannel(channelId, true, String(retryError));
+                        }
+                    } else {
  this.logService.error(` ❌ Query : ${error}`);
-                    if (error instanceof Error) {
-                        this.logService.error(`     Stack: ${error.stack}`);
+                        if (error instanceof Error) {
+                            this.logService.error(`     Stack: ${error.stack}`);
+                        }
+                        this.closeChannel(channelId, true, String(error));
                     }
-                    this.closeChannel(channelId, true, String(error));
                 }
             })();
 
@@ -608,6 +663,16 @@ export class ClaudeAgentService implements IClaudeAgentService {
 
         if (message.type === "user") {
             channel.in.enqueue(message as SDKUserMessage);
+            // Track last user message text for plan-mode auto-stop detection
+            try {
+                const content = (message as any)?.message?.content;
+                if (Array.isArray(content)) {
+                    const text = content.filter((b: any) => b?.type === 'text').map((b: any) => b.text || '').join(' ');
+                    this.lastUserMessageText.set(channelId, text.toLowerCase());
+                } else if (typeof content === 'string') {
+                    this.lastUserMessageText.set(channelId, content.toLowerCase());
+                }
+            } catch { /* ignore */ }
         }
 
         if (done) {
@@ -789,14 +854,8 @@ export class ClaudeAgentService implements IClaudeAgentService {
             case "show_edit_diff":
                 return handleShowEditDiff(request as any, this.handlerContext);
 
-            // case "open_claude_in_terminal":
-            //     return handleOpenClaudeInTerminal(request, this.handlerContext);
-
-            // case "get_auth_status":
-            //     return handleGetAuthStatus(request, this.handlerContext);
-
-            // case "login":
-            //     return handleLogin(request, this.handlerContext);
+            case "open_claude_in_terminal":
+                return handleOpenClaudeInTerminal(request as any, this.handlerContext);
 
             // case "submit_oauth_code":
             //     return handleSubmitOAuthCode(request, this.handlerContext);
@@ -949,7 +1008,7 @@ export class ClaudeAgentService implements IClaudeAgentService {
  // channel
         await channel.query.setModel(model);
 
-        await this.configService.updateValue('claudix.selectedModel', model);
+        await this.configService.updateValue('optimo.selectedModel', model);
 
         this.logService.info(`[setModel] Set channel ${channelId} to model: ${model}`);
     }

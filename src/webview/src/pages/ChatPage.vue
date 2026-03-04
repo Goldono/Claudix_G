@@ -47,6 +47,14 @@
                 <ClaudeWordmark class="emptyWordmarkSvg" />
               </div>
               <RandomTip :platform="platform" />
+              <button
+                class="login-hint-btn"
+                @click="openClaudeLogin"
+                title="Open Claude Code in terminal to log in"
+              >
+                <span class="codicon codicon-terminal"></span>
+                Log in to Claude Code
+              </button>
             </div>
           </template>
           <template v-else>
@@ -588,8 +596,8 @@
 
         rawSession.messages([]); // Clear all UI messages
         rawSession.error(undefined);
+        rawSession.sessionId(undefined); // Clear BEFORE restart so launchClaude doesn't resume old session
         await rawSession.restartClaude();
-        rawSession.sessionId(undefined);
 
         messageToSend = fullPrompt;
       }
@@ -749,7 +757,7 @@
   );
 
   // Plan mode: functional toggle, persisted per session in localStorage
-  const PLAN_MODE_KEY = 'claudix-plan-mode';
+  const PLAN_MODE_KEY = 'optimo-plan-mode';
   const isInPlanMode = ref(false);
   const planModeJustDeactivated = ref(false);
 
@@ -900,6 +908,21 @@
             if (block?.type === 'tool_use' && block.name === 'EnterPlanMode' && !isInPlanMode.value) {
               setPlanMode(true);
             }
+            // AUTO-STOP: When Claude calls ExitPlanMode ON ITS OWN, interrupt it.
+            // But if the user explicitly asked to execute the plan, let it continue.
+            if (block?.type === 'tool_use' && block.name === 'ExitPlanMode') {
+              // Check if the user's last message was a plan-execution command
+              const lastUserMsg = latestMsgs.filter(m => m?.type === 'user').pop();
+              const lastUserText = (lastUserMsg?.message?.content ?? [])
+                .map((w: any) => w?.content?.text || w?.text || '').join(' ').toLowerCase();
+              const userRequestedExecution = /führe den plan|execute.*plan|plan ausführen|plan starten|los|mach|starte/.test(lastUserText);
+              if (!userRequestedExecution) {
+                const rawSession = activeSessionRaw.value;
+                if (rawSession && isBusy.value) {
+                  void rawSession.interrupt();
+                }
+              }
+            }
           }
         }
       }
@@ -942,6 +965,16 @@
   onUnmounted(() => {
     try { unregisterToggle?.(); } catch {}
   });
+
+  async function openClaudeLogin() {
+    if (!runtime) return;
+    try {
+      const connection = await runtime.sessionStore.getConnection();
+      await connection.openClaudeInTerminal();
+    } catch (e) {
+      console.error('[ChatPage] Failed to open Claude Code terminal', e);
+    }
+  }
 
   async function createNew(): Promise<void> {
     if (!runtime) return;
@@ -1441,5 +1474,25 @@
     align-items: center;
     justify-content: center;
     margin-bottom: 24px;
+  }
+
+  .login-hint-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 16px;
+    padding: 6px 14px;
+    border: 1px solid var(--vscode-button-border, var(--vscode-contrastBorder, transparent));
+    border-radius: 4px;
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    font-size: 12px;
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.15s;
+  }
+  .login-hint-btn:hover {
+    opacity: 1;
+    background: var(--vscode-button-secondaryHoverBackground);
   }
 </style>
