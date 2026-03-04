@@ -806,14 +806,27 @@ function handlePaste(event: ClipboardEvent) {
 
   const text = clipboard.getData('text/plain')
   if (text) {
-    document.execCommand('insertText', false, text)
+    // Insert plain text at caret using Selection API (execCommand is unreliable in VSCode webview)
+    const sel = window.getSelection()
+    if (sel && sel.rangeCount > 0 && textareaRef.value?.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0)
+      range.deleteContents()
+      const textNode = document.createTextNode(text)
+      range.insertNode(textNode)
+      range.setStartAfter(textNode)
+      range.collapse(true)
+      sel.removeAllRanges()
+      sel.addRange(range)
+    } else if (textareaRef.value) {
+      // No selection in editor — append at end
+      textareaRef.value.appendChild(document.createTextNode(text))
+      placeCaretAtEnd(textareaRef.value)
+    }
   }
 
-  setTimeout(() => {
-    syncContentFromEditor()
-    lastSavedHtml = textareaRef.value?.innerHTML || ''
-    autoResizeTextarea()
-  }, 0)
+  syncContentFromEditor()
+  lastSavedHtml = textareaRef.value?.innerHTML || ''
+  autoResizeTextarea()
 }
 
 function getWorkspaceRoot(): string | undefined {
