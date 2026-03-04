@@ -1,7 +1,7 @@
 # Projekt-Regeln für Claude Code
 
-### UHAHAHAHAHA
-UHAHAHAHAHA UHAHAHAHAHA UHAHAHAHAHA
+### SESSION-GUARD TEST v2
+was geht ab
 
 ## Sprache & Kommunikation
 Antworte IMMER auf Deutsch. Technische Begriffe und Code-Bezeichner bleiben im Original.

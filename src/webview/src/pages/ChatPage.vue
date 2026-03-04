@@ -148,7 +148,7 @@
 
   // Store reverted edits per message index for undo-restore toggle
   type EditEntry = { filePath: string; editType: 'edit' | 'write'; oldString?: string; newString?: string; fileContents?: string };
-  type RestoreState = { atIndex: number | null; checkpoints: Map<number, EditEntry[]> };
+  type RestoreState = { atIndex: number | null; checkpoints: Map<number, EditEntry[]>; activeRevert: boolean; revertedToolUses: Set<string> };
   const restoredCheckpoints = ref<Map<number, EditEntry[]>>(new Map());
   // Track which index messages are dimmed from (null = nothing dimmed)
   const restoredAtIndex = ref<number | null>(null);
@@ -156,12 +156,27 @@
   // Track whether a revert is active — triggers fresh session on next submit
   const hasActiveRevert = ref(false);
 
+  // Track individually reverted tool_use blocks by their ID (persisted across tab switches)
+  const revertedToolUses = ref<Set<string>>(new Set());
+
   // Queued message: shown when user submits while AI is busy
   const queuedMessage = ref<string | null>(null);
 
   // Per-session save/restore of checkpoint state (so switching tabs preserves gray)
   const savedRestoreStates = new Map<any, RestoreState>();
   let previousRawSession: any = null;
+
+  // --- Global cross-session file edit tracking (NOT per-session, but reactive) ---
+  // Tracks which tool_uses from which sessions edited which files
+  // toolUseId → { filePath (normalized), sessionRef, seq (registration order) }
+  let globalEditSeq = 0;
+  const globalToolUseInfo = ref(new Map<string, { filePath: string; sessionRef: any; seq: number }>());
+  // filePath → Set of toolUseIds that edited this file
+  const globalFileToolUses = ref(new Map<string, Set<string>>());
+  // All reverted toolUseIds across ALL sessions (mirrors per-session revertedToolUses)
+  const globalRevertedToolUses = ref(new Set<string>());
+  // ToolUseIds that are permanently conflicted (file was modified while this edit was reverted)
+  const globalConflictedToolUses = ref(new Set<string>());
 
   const toolContext = computed<ToolContext>(() => ({
     fileOpener: {
@@ -259,6 +274,7 @@
         restoredCheckpoints.value = newMap;
         restoredAtIndex.value = null;
         hasActiveRevert.value = false;
+        revertedToolUses.value = new Set();
 
         let redoMsg: string;
         if (reapplyFailed > 0) {
@@ -411,6 +427,88 @@
       return restoredAtIndex.value === messageIndex;
     },
     restoredAtIndex: restoredAtIndex.value,
+    isToolUseReverted: (toolUseId: string) => {
+      return revertedToolUses.value.has(toolUseId);
+    },
+    setToolUseReverted: (toolUseId: string, reverted: boolean) => {
+      // Per-session state
+      const next = new Set(revertedToolUses.value);
+      if (reverted) { next.add(toolUseId); } else { next.delete(toolUseId); }
+      revertedToolUses.value = next;
+      // Global cross-session state (reactive — triggers UI updates across sessions)
+      // Only track reverted state here; conflicts are computed dynamically in getToolUseBlockedState
+      const nextGlobal = new Set(globalRevertedToolUses.value);
+      if (reverted) { nextGlobal.add(toolUseId); } else { nextGlobal.delete(toolUseId); }
+      globalRevertedToolUses.value = nextGlobal;
+      // Clear permanent conflict if this tool_use does a redo
+      if (!reverted && globalConflictedToolUses.value.has(toolUseId)) {
+        const nextConflict = new Set(globalConflictedToolUses.value);
+        nextConflict.delete(toolUseId);
+        globalConflictedToolUses.value = nextConflict;
+      }
+    },
+    registerFileEdit: (toolUseId: string, filePath: string) => {
+      const normalized = filePath.replace(/\\/g, '/');
+      const currentSession = activeSessionRaw.value;
+      if (!globalToolUseInfo.value.has(toolUseId)) {
+        const nextInfo = new Map(globalToolUseInfo.value);
+        nextInfo.set(toolUseId, { filePath: normalized, sessionRef: currentSession, seq: globalEditSeq++ });
+        globalToolUseInfo.value = nextInfo;
+
+        const prevFileMap = globalFileToolUses.value;
+        const fileEdits = prevFileMap.get(normalized) ?? new Set<string>();
+
+        // Before adding: check if any existing REVERTED tool_uses for this file become conflicted
+        // (a new edit happened on this file while a previous edit was reverted → redo impossible)
+        let conflictChanged = false;
+        const nextConflict = new Set(globalConflictedToolUses.value);
+        for (const existingId of fileEdits) {
+          if (existingId !== toolUseId && globalRevertedToolUses.value.has(existingId)) {
+            nextConflict.add(existingId);
+            conflictChanged = true;
+          }
+        }
+        if (conflictChanged) globalConflictedToolUses.value = nextConflict;
+
+        const nextFileEdits = new Set(fileEdits);
+        nextFileEdits.add(toolUseId);
+        const nextFileMap = new Map(prevFileMap);
+        nextFileMap.set(normalized, nextFileEdits);
+        globalFileToolUses.value = nextFileMap;
+      }
+    },
+    getToolUseBlockedState: (toolUseId: string, filePath: string): 'none' | 'locked' | 'conflict' => {
+      // Permanently conflicted? (was reverted, then file got new edits)
+      if (globalConflictedToolUses.value.has(toolUseId)) return 'conflict';
+      const normalized = filePath.replace(/\\/g, '/');
+      const myInfo = globalToolUseInfo.value.get(toolUseId);
+      if (!myInfo) return 'none';
+      const mySession = myInfo.sessionRef;
+      const mySeq = myInfo.seq;
+      // Dynamic cross-session conflict/lock detection
+      const thisIsReverted = globalRevertedToolUses.value.has(toolUseId);
+      const fileEdits = globalFileToolUses.value.get(normalized);
+      if (fileEdits) {
+        for (const otherId of fileEdits) {
+          if (otherId === toolUseId) continue;
+          const otherInfo = globalToolUseInfo.value.get(otherId);
+          if (!otherInfo || otherInfo.sessionRef === mySession) continue;
+          const otherIsReverted = globalRevertedToolUses.value.has(otherId) || globalConflictedToolUses.value.has(otherId);
+          if (thisIsReverted) {
+            // This edit is reverted (redo button shown) — check if redo is safe
+            // Earlier cross-session edit also reverted → can't redo (base state wrong)
+            if (otherInfo.seq < mySeq && otherIsReverted) return 'conflict';
+            // Later cross-session edit still active → can't redo (file has later changes)
+            if (otherInfo.seq > mySeq && !otherIsReverted) return 'conflict';
+          } else {
+            // This edit is active (revert button shown)
+            // Later cross-session edit still active → locked (revert later first)
+            if (otherInfo.seq > mySeq && !otherIsReverted) return 'locked';
+          }
+        }
+      }
+      return 'none';
+    },
     editAndRestart: async (messageIndex: number, newContent: string) => {
       const rawSession = activeSessionRaw.value;
       if (!rawSession) return;
@@ -422,6 +520,8 @@
       }
 
       const allMsgs = messages.value;
+
+      let messageToSend = newContent;
 
       // --- Try SDK-based rewind using resumeSessionAt ---
       // Find the UUID of the user message we're editing (or the one before it)
@@ -435,84 +535,75 @@
         }
       }
 
+      let rewindSucceeded = false;
+
       if (rewindUuid && rawSession.sessionId()) {
         // === PRIMARY PATH: SDK-based rewind ===
-        // Truncate UI messages
         rawSession.truncateMessagesAfter(messageIndex > 0 ? messageIndex - 1 : 0);
 
-        // Relaunch with rewind — SDK handles file revert + context truncation
-        await rawSession.relaunchWithRewind(rewindUuid);
-      } else {
-        // === FALLBACK: Manual revert (no UUID available) ===
-        const editsToRevert: EditEntry[] = [];
-
-        for (let i = messageIndex; i < allMsgs.length; i++) {
-          const msg = allMsgs[i];
-          const content = msg?.message?.content;
-          if (!Array.isArray(content)) continue;
-
-          for (const wrapper of content) {
-            const block = wrapper?.content;
-            if (!block || block.type !== 'tool_use') continue;
-            const name = block.name;
-            const input = block.input;
-            if (!input?.file_path) continue;
-
-            if (name === 'Edit' || name === 'MultiEdit') {
-              editsToRevert.push({
-                filePath: input.file_path,
-                editType: 'edit',
-                oldString: input.old_string,
-                newString: input.new_string,
-              });
-            } else if (name === 'Write') {
-              editsToRevert.push({
-                filePath: input.file_path,
-                editType: 'write',
-                fileContents: input.content,
-              });
-            }
-          }
+        try {
+          await rawSession.relaunchWithRewind(rewindUuid);
+          rewindSucceeded = true;
+        } catch (e) {
+          console.warn('[ChatPage] SDK rewind failed, falling back to new session', e);
         }
+      }
 
-        if (editsToRevert.length > 0) {
-          const connection = await runtime.sessionStore.getConnection();
-          const writeRevertedFiles = new Set<string>();
-
-          for (let i = editsToRevert.length - 1; i >= 0; i--) {
-            const edit = editsToRevert[i];
-            if (edit.editType === 'edit' && writeRevertedFiles.has(edit.filePath)) continue;
-            try {
-              const result = await connection.revertFileEdit('revert', edit.filePath, edit.editType, {
-                oldString: edit.oldString,
-                newString: edit.newString,
-                fileContents: edit.fileContents,
-                previousContents: null,
-              });
-              if (result.success && edit.editType === 'write') {
-                writeRevertedFiles.add(edit.filePath);
+      if (!rewindSucceeded) {
+        // === FALLBACK: Pack entire conversation history + edited message into a new session ===
+        // Build a text summary of the full conversation so Claude has all context
+        const historyParts: string[] = [];
+        const msgsUpToEdit = allMsgs.slice(0, messageIndex);
+        for (const msg of msgsUpToEdit) {
+          if (!msg?.message?.content) continue;
+          const role = msg.type === 'user' ? 'User' : msg.type === 'assistant' ? 'Assistant' : null;
+          if (!role) continue;
+          const content = msg.message.content;
+          let text = '';
+          if (typeof content === 'string') {
+            text = content;
+          } else if (Array.isArray(content)) {
+            const textParts: string[] = [];
+            for (const wrapper of content) {
+              const block = wrapper?.content;
+              if (!block) continue;
+              if (block.type === 'text' && block.text) {
+                textParts.push(block.text);
+              } else if (block.type === 'tool_use') {
+                textParts.push(`[Tool: ${block.name}]`);
               }
-            } catch { /* continue with remaining reverts */ }
+            }
+            text = textParts.join('\n');
+          }
+          if (text.trim()) {
+            historyParts.push(`${role}:\n${text}`);
           }
         }
 
-        // Truncate UI messages
-        rawSession.truncateMessagesAfter(messageIndex > 0 ? messageIndex - 1 : 0);
+        let fullPrompt = newContent;
+        if (historyParts.length > 0) {
+          const historyBlock = historyParts.join('\n\n---\n\n');
+          fullPrompt = `<conversation-history>\nDies ist der bisherige Gesprächsverlauf einer vorherigen Session. Bitte setze die Arbeit basierend auf diesem Kontext fort.\n\n${historyBlock}\n</conversation-history>\n\n${newContent}`;
+        }
 
-        // Reset SDK session completely (no UUID = fresh start)
+        rawSession.messages([]); // Clear all UI messages
+        rawSession.error(undefined);
         await rawSession.restartClaude();
         rawSession.sessionId(undefined);
+
+        messageToSend = fullPrompt;
       }
 
       // Clear restore state
       restoredAtIndex.value = null;
       restoredCheckpoints.value = new Map();
       hasActiveRevert.value = false;
+      revertedToolUses.value = new Set();
 
-      // Resend the edited message
+      // Resend the edited message (with full history in fallback case)
       try {
         userScrolledUp = false;
-        await rawSession.send(newContent);
+        await rawSession.send(messageToSend);
         scrollToBottom(true);
       } catch (e) {
         console.error('[ChatPage] editAndRestart send failed', e);
@@ -530,6 +621,52 @@
         fileContents: content,
         previousContents: null,
       });
+    },
+    startPlanInNewSession: (planContent: string) => {
+      // Collect all file paths from Read, Edit, Write, MultiEdit, Glob, Grep tool uses in this session
+      const filePaths = new Set<string>();
+      for (const msg of messages.value) {
+        const content = msg?.message?.content;
+        if (!Array.isArray(content)) continue;
+        for (const wrapper of content) {
+          const block = wrapper?.content;
+          if (!block || block.type !== 'tool_use') continue;
+          const name = block.name;
+          const input = block.input;
+          if (!input) continue;
+          if (name === 'Read' || name === 'Edit' || name === 'Write' || name === 'MultiEdit') {
+            if (input.file_path) filePaths.add(input.file_path);
+          }
+          if (name === 'Glob' || name === 'Grep') {
+            if (input.path) filePaths.add(input.path);
+          }
+        }
+      }
+
+      const fileList = Array.from(filePaths).map(p => `- ${p}`).join('\n');
+      const prompt = [
+        '<plan>',
+        planContent,
+        '</plan>',
+        '',
+        '<relevant-files>',
+        'Diese Dateien wurden in der vorherigen Session gelesen oder bearbeitet:',
+        fileList,
+        '</relevant-files>',
+        '',
+        'Führe den obigen Plan aus. Die aufgelisteten Dateien sind für den Kontext relevant — lies sie zuerst, bevor du mit der Umsetzung beginnst.',
+      ].join('\n');
+
+      void (async () => {
+        try {
+          const newSession = await runtime.sessionStore.createSession({ isExplicit: true });
+          userScrolledUp = false;
+          await newSession.send(prompt);
+          scrollToBottom(true);
+        } catch (e) {
+          console.error('[ChatPage] startPlanInNewSession failed', e);
+        }
+      })();
     },
   }));
 
@@ -714,6 +851,8 @@
       savedRestoreStates.set(previousRawSession, {
         atIndex: restoredAtIndex.value,
         checkpoints: new Map(restoredCheckpoints.value),
+        activeRevert: hasActiveRevert.value,
+        revertedToolUses: new Set(revertedToolUses.value),
       });
     }
     // Restore saved state for the session we're entering
@@ -721,9 +860,13 @@
     if (saved) {
       restoredAtIndex.value = saved.atIndex;
       restoredCheckpoints.value = saved.checkpoints;
+      hasActiveRevert.value = saved.activeRevert;
+      revertedToolUses.value = new Set(saved.revertedToolUses);
     } else {
       restoredAtIndex.value = null;
       restoredCheckpoints.value = new Map();
+      hasActiveRevert.value = false;
+      revertedToolUses.value = new Set();
     }
     previousRawSession = newRaw;
   });
@@ -883,16 +1026,23 @@
       return;
     }
 
-    // Separate file-reference pills from binary attachments
-    const fileRefs = attachments.value.filter(a => a.isFileRef);
+    // File references are now inline in the text as @path (from editor chips).
+    // Extract them for fulltext mode processing.
     const binaryAttachments = attachments.value.filter(a => !a.isFileRef);
 
-    // Fulltext mode: read file contents and convert refs to text/plain attachments
-    if (fullTextMode.value && fileRefs.length > 0) {
+    // Extract @path references from the text (inline file chips become @path on submit)
+    const atRefPattern = /@([^\s@]+)/g;
+    const inlineFilePaths: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = atRefPattern.exec(trimmed)) !== null) {
+      inlineFilePaths.push(match[1]);
+    }
+
+    // Fulltext mode: read file contents for all @path refs and append as context
+    if (fullTextMode.value && inlineFilePaths.length > 0) {
       try {
         const connection = await runtime.sessionStore.getConnection();
-        const paths = fileRefs.map(f => f.filePath!).filter(Boolean);
-        const result = await connection.readFileContents(paths);
+        const result = await connection.readFileContents(inlineFilePaths);
         if (result?.files) {
           for (const file of result.files) {
             if (file.error || !file.content) continue;
@@ -901,16 +1051,15 @@
           }
         }
       } catch (e) { console.error('[ChatPage] fulltext read failed', e); }
-    } else if (fileRefs.length > 0) {
-      const paths = fileRefs.map(f => `@${f.filePath}`).join(' ');
-      trimmed = trimmed ? `${paths} ${trimmed}` : paths;
     }
+    // Normal mode: @path references stay in the text as-is (Claude sees them inline)
 
     // If a revert is active, create a fresh session so the model starts clean
     if (hasActiveRevert.value) {
       hasActiveRevert.value = false;
       restoredAtIndex.value = null;
       restoredCheckpoints.value = new Map();
+      revertedToolUses.value = new Set();
       try {
         const newSession = await runtime.sessionStore.createSession({ isExplicit: true });
         userScrolledUp = false;

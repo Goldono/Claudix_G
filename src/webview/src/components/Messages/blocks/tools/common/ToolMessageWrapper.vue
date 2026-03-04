@@ -32,9 +32,23 @@
           <slot name="main"></slot>
         </div>
 
-        <!-- Revert/Redo button -->
+        <!-- Revert/Redo button — or blocked indicator -->
+        <span
+          v-if="showRevertButton && blockedState === 'conflict'"
+          class="revert-btn is-conflict"
+          title="Datei wurde in einer anderen Session weiter bearbeitet — Rückgängig nicht mehr möglich"
+        >
+          <span class="codicon codicon-close" />
+        </span>
+        <span
+          v-else-if="showRevertButton && blockedState === 'locked'"
+          class="revert-btn is-locked"
+          title="Datei wurde in einer anderen Session bearbeitet — dort zuerst rückgängig machen"
+        >
+          <span class="codicon codicon-lock" />
+        </span>
         <button
-          v-if="showRevertButton"
+          v-else-if="showRevertButton"
           class="revert-btn"
           :class="{ 'is-reverted': isReverted }"
           :title="isReverted ? 'Re-apply' : 'Undo'"
@@ -83,6 +97,7 @@ interface Props {
   showRevertButton?: boolean;
   isReverted?: boolean;
   revertLoading?: boolean;
+  blockedState?: 'none' | 'locked' | 'conflict';
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -261,6 +276,26 @@ function toggleExpand() {
 .revert-btn.is-reverted {
   opacity: 0.7;
   color: #eab308;
+}
+
+.revert-btn.is-locked {
+  opacity: 0.4;
+  color: var(--vscode-foreground);
+  cursor: not-allowed;
+}
+
+.main-line:hover .revert-btn.is-locked {
+  opacity: 0.5;
+}
+
+.revert-btn.is-conflict {
+  opacity: 0.6;
+  color: #ef4444;
+  cursor: not-allowed;
+}
+
+.main-line:hover .revert-btn.is-conflict {
+  opacity: 0.8;
 }
 
 .revert-btn .codicon {

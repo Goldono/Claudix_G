@@ -7,6 +7,7 @@
     :show-revert-button="showRevertButton"
     :is-reverted="isReverted"
     :revert-loading="revertLoading"
+    :blocked-state="blockedState"
     :class="{ 'has-diff-view': hasDiffView }"
     @toggle-revert="handleToggleRevert"
   >
@@ -84,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted } from 'vue';
 import path from 'path-browserify-esm';
 import type { ToolContext } from '@/types/tool';
 import ToolMessageWrapper from './common/ToolMessageWrapper.vue';
@@ -101,16 +102,38 @@ interface Props {
 
 const props = defineProps<Props>();
 
-// Revert state
-const isReverted = ref(false);
+// Revert state — read from central store (persisted across tab switches)
+const toolUseId = computed(() => props.toolUse?.id || '');
+const isReverted = computed(() => {
+  if (!toolUseId.value) return false;
+  return props.context?.isToolUseReverted?.(toolUseId.value) ?? false;
+});
 const revertLoading = ref(false);
+
+// Cross-session blocked state
+const blockedState = computed(() => {
+  if (!toolUseId.value || !filePath.value) return 'none';
+  return props.context?.getToolUseBlockedState?.(toolUseId.value, filePath.value) ?? 'none';
+});
 
 const showRevertButton = computed(() => {
   return !!props.toolResult && !props.toolResult.is_error && !!filePath.value;
 });
 
+// Register this edit globally for cross-session tracking
+onMounted(() => {
+  if (toolUseId.value && filePath.value && props.toolResult && !props.toolResult.is_error) {
+    props.context?.registerFileEdit?.(toolUseId.value, filePath.value);
+  }
+});
+watch(() => props.toolResult, (result) => {
+  if (toolUseId.value && filePath.value && result && !result.is_error) {
+    props.context?.registerFileEdit?.(toolUseId.value, filePath.value);
+  }
+});
+
 async function handleToggleRevert() {
-  if (revertLoading.value || !props.context?.revertFileEdit) return;
+  if (revertLoading.value || !props.context?.revertFileEdit || !toolUseId.value) return;
   revertLoading.value = true;
   try {
     const action = isReverted.value ? 'reapply' : 'revert';
@@ -124,7 +147,7 @@ async function handleToggleRevert() {
       }
     );
     if (result.success) {
-      isReverted.value = !isReverted.value;
+      props.context.setToolUseReverted?.(toolUseId.value, !isReverted.value);
     } else if (result.error === 'conflict') {
       await props.context.showNotification?.(
         'Datei wurde zwischenzeitlich geändert. Rückgängig nicht möglich.',

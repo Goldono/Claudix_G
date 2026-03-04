@@ -325,6 +325,15 @@ export class Session {
     this.claudeChannelId(undefined);
     this.busy(false);
     await this.launchClaude({ resumeSessionAt, forkSession: true });
+
+    // Wait briefly to detect immediate SDK failures (e.g. invalid UUID → process exits with code 1).
+    // If the channel dies, readMessages() will clear claudeChannelId and set error().
+    await new Promise(r => setTimeout(r, 1000));
+    if (!this.claudeChannelId() || this.error()) {
+      const errorMsg = this.error() || 'Session rewind failed';
+      this.error(undefined);
+      throw new Error(errorMsg);
+    }
   }
 
   async listFiles(pattern?: string, signal?: AbortSignal): Promise<any> {

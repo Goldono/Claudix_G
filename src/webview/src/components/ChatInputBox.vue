@@ -1,33 +1,10 @@
 <template>
   <!-- - -->
   <div class="full-input-box" style="position: relative;">
-    <!-- （） -->
-    <div v-if="attachments && attachments.length > 0" class="attachments-list">
-      <div
-        v-for="attachment in attachments"
-        :key="attachment.id"
-        class="attachment-item"
-      >
-        <div class="icon-wrapper">
-          <div class="attachment-icon">
-            <FileIcon :file-name="attachment.fileName" :size="16" />
-          </div>
-          <button
-            class="remove-button"
-            @click.stop="handleRemoveAttachment(attachment.id)"
-            :aria-label="`Remove ${attachment.fileName}`"
-          >
-            <span class="codicon codicon-close" />
-          </button>
-        </div>
-        <span class="attachment-name">{{ attachment.fileName }}</span>
-      </div>
-    </div>
-
-    <!-- ： -->
+    <!-- Editor: contenteditable div with inline file chips -->
     <div
       ref="textareaRef"
-      contenteditable="plaintext-only"
+      contenteditable="true"
       class="aislash-editor-input custom-scroll-container"
       :data-placeholder="placeholder"
       style="min-height: 34px; max-height: 240px; resize: none; overflow-y: hidden; word-wrap: break-word; overflow-wrap: break-word; word-break: break-word; white-space: pre-wrap; width: 100%; max-width: 100%; height: 34px;"
@@ -38,7 +15,7 @@
       @drop="handleDrop"
     />
 
-    <!-- ：ButtonArea + TokenIndicator -->
+    <!-- ButtonArea + TokenIndicator -->
     <ButtonArea
       :disabled="isSubmitDisabled"
       :loading="isLoading"
@@ -208,20 +185,204 @@ const content = ref('')
 const isLoading = ref(false)
 const textareaRef = ref<HTMLDivElement | null>(null)
 
-// Unified undo/redo history (tracks text + attachments together)
+// ============================================================
+// Inline file chip helpers
+// ============================================================
+
+const FILE_CHIP_ATTR = 'data-file-chip'
+const FILE_CHIP_PATH_ATTR = 'data-file-path'
+
+/** Create an inline file chip DOM element */
+function createFileChip(filePath: string): HTMLSpanElement {
+  const chip = document.createElement('span')
+  chip.setAttribute(FILE_CHIP_ATTR, '1')
+  chip.setAttribute(FILE_CHIP_PATH_ATTR, filePath)
+  chip.setAttribute('contenteditable', 'false')
+  chip.className = 'inline-file-chip'
+
+  // File name (last segment)
+  const fileName = filePath.replace(/\\/g, '/').split('/').pop() || filePath
+  const nameSpan = document.createElement('span')
+  nameSpan.className = 'chip-name'
+  nameSpan.textContent = `@${fileName}`
+  nameSpan.title = filePath
+
+  // Remove button
+  const removeBtn = document.createElement('span')
+  removeBtn.className = 'chip-remove codicon codicon-close'
+  removeBtn.addEventListener('mousedown', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    chip.remove()
+    syncContentFromEditor()
+    autoResizeTextarea()
+  })
+
+  chip.appendChild(nameSpan)
+  chip.appendChild(removeBtn)
+
+  return chip
+}
+
+/** Insert a file chip at the current caret position (or end if no selection) */
+function insertChipAtCaret(filePath: string) {
+  const el = textareaRef.value
+  if (!el) return
+
+  el.focus()
+  const chip = createFileChip(filePath)
+
+  const sel = window.getSelection()
+  if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+    const range = sel.getRangeAt(0)
+    range.deleteContents()
+    range.insertNode(chip)
+    // Add a zero-width space after the chip so the caret has somewhere to go
+    const spacer = document.createTextNode('\u00A0')
+    range.setStartAfter(chip)
+    range.insertNode(spacer)
+    range.setStartAfter(spacer)
+    range.collapse(true)
+    sel.removeAllRanges()
+    sel.addRange(range)
+  } else {
+    // No selection inside editor — append at end
+    el.appendChild(chip)
+    const spacer = document.createTextNode('\u00A0')
+    el.appendChild(spacer)
+    placeCaretAtEnd(el)
+  }
+
+  syncContentFromEditor()
+  autoResizeTextarea()
+}
+
+/** Insert a file chip at a specific drop point (x, y coordinates) */
+function insertChipAtPoint(filePath: string, x: number, y: number) {
+  const el = textareaRef.value
+  if (!el) return
+
+  const chip = createFileChip(filePath)
+
+  // Try to find the caret position at drop coordinates
+  let range: Range | null = null
+  if (document.caretRangeFromPoint) {
+    range = document.caretRangeFromPoint(x, y)
+  } else if ((document as any).caretPositionFromPoint) {
+    const pos = (document as any).caretPositionFromPoint(x, y)
+    if (pos) {
+      range = document.createRange()
+      range.setStart(pos.offsetNode, pos.offset)
+      range.collapse(true)
+    }
+  }
+
+  if (range && el.contains(range.startContainer)) {
+    range.insertNode(chip)
+    const spacer = document.createTextNode('\u00A0')
+    range.setStartAfter(chip)
+    range.insertNode(spacer)
+    range.setStartAfter(spacer)
+    range.collapse(true)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+  } else {
+    // Fallback: append at end
+    el.appendChild(chip)
+    const spacer = document.createTextNode('\u00A0')
+    el.appendChild(spacer)
+    placeCaretAtEnd(el)
+  }
+
+  syncContentFromEditor()
+  autoResizeTextarea()
+}
+
+/** Extract plain text from editor, replacing file chips with @path references */
+function getEditorTextWithRefs(): string {
+  const el = textareaRef.value
+  if (!el) return ''
+  return nodeToText(el)
+}
+
+function nodeToText(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node.textContent || ''
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return ''
+
+  const el = node as HTMLElement
+
+  // File chip → @path
+  if (el.hasAttribute(FILE_CHIP_ATTR)) {
+    const path = el.getAttribute(FILE_CHIP_PATH_ATTR) || ''
+    return `@${path}`
+  }
+
+  // <br> → newline
+  if (el.tagName === 'BR') return '\n'
+
+  // Block-level elements get newlines
+  const tag = el.tagName.toLowerCase()
+  const isBlock = tag === 'div' || tag === 'p' || tag === 'li'
+  let text = ''
+  for (const child of Array.from(el.childNodes)) {
+    text += nodeToText(child)
+  }
+  // Add newline before block elements (except the first child)
+  if (isBlock && el.previousSibling) {
+    text = '\n' + text
+  }
+  return text
+}
+
+/** Collect all file paths from chips in the editor */
+function getChipPaths(): string[] {
+  const el = textareaRef.value
+  if (!el) return []
+  const chips = el.querySelectorAll(`[${FILE_CHIP_ATTR}]`)
+  const paths: string[] = []
+  const seen = new Set<string>()
+  for (const chip of Array.from(chips)) {
+    const p = chip.getAttribute(FILE_CHIP_PATH_ATTR)
+    if (p && !seen.has(p)) {
+      seen.add(p)
+      paths.push(p)
+    }
+  }
+  return paths
+}
+
+/** Sync content ref from editor DOM (for isEmpty checks etc.) */
+function syncContentFromEditor() {
+  const el = textareaRef.value
+  if (!el) return
+  const text = el.textContent || ''
+  content.value = text
+
+  // If truly empty, clear innerHTML to show placeholder
+  if (text.trim().length === 0 && el.querySelectorAll(`[${FILE_CHIP_ATTR}]`).length === 0) {
+    el.innerHTML = ''
+    content.value = ''
+  }
+}
+
+// ============================================================
+// Unified undo/redo history (tracks innerHTML)
+// ============================================================
+
 interface EditorSnapshot {
-  text: string
-  attachments: AttachmentItem[]
+  html: string
 }
 const undoStack = ref<EditorSnapshot[]>([])
 const redoStack = ref<EditorSnapshot[]>([])
 let inputDebounceTimer: ReturnType<typeof setTimeout> | null = null
-let lastSavedText = ''
+let lastSavedHtml = ''
 
 function currentSnapshot(): EditorSnapshot {
   return {
-    text: textareaRef.value?.textContent || '',
-    attachments: [...(props.attachments || [])],
+    html: textareaRef.value?.innerHTML || '',
   }
 }
 
@@ -232,43 +393,56 @@ function pushUndo(snapshot?: EditorSnapshot) {
 }
 
 function pushUndoDebounced() {
-  // Batch rapid keystrokes into one undo entry
   if (inputDebounceTimer) clearTimeout(inputDebounceTimer)
-  const curText = textareaRef.value?.textContent || ''
-  if (lastSavedText === curText) return
+  const curHtml = textareaRef.value?.innerHTML || ''
+  if (lastSavedHtml === curHtml) return
   inputDebounceTimer = setTimeout(() => {
-    // Save the state BEFORE this batch of typing started
-    if (undoStack.value.length === 0 || undoStack.value[undoStack.value.length - 1].text !== lastSavedText) {
-      undoStack.value = [...undoStack.value, { text: lastSavedText, attachments: [...(props.attachments || [])] }]
+    if (undoStack.value.length === 0 || undoStack.value[undoStack.value.length - 1].html !== lastSavedHtml) {
+      undoStack.value = [...undoStack.value, { html: lastSavedHtml }]
       redoStack.value = []
     }
-    lastSavedText = curText
+    lastSavedHtml = curHtml
   }, 400)
 }
 
 function restoreSnapshot(snap: EditorSnapshot) {
-  // Restore text
   if (textareaRef.value) {
-    textareaRef.value.textContent = snap.text
+    textareaRef.value.innerHTML = snap.html
+    // Re-attach chip remove listeners
+    reattachChipListeners(textareaRef.value)
     // Move cursor to end
-    const sel = window.getSelection()
-    if (sel && textareaRef.value.childNodes.length > 0) {
-      const range = document.createRange()
-      range.selectNodeContents(textareaRef.value)
-      range.collapse(false)
-      sel.removeAllRanges()
-      sel.addRange(range)
-    }
+    placeCaretAtEnd(textareaRef.value)
   }
-  content.value = snap.text
-  lastSavedText = snap.text
-  // Restore attachments
-  emit('setAttachments', [...snap.attachments])
+  syncContentFromEditor()
+  lastSavedHtml = snap.html
   autoResizeTextarea()
 }
 
+/** After setting innerHTML, re-attach event listeners on chip remove buttons */
+function reattachChipListeners(container: HTMLElement) {
+  const chips = container.querySelectorAll(`[${FILE_CHIP_ATTR}]`)
+  for (const chip of Array.from(chips)) {
+    const removeBtn = chip.querySelector('.chip-remove')
+    if (removeBtn) {
+      // Remove old listeners by cloning
+      const newBtn = removeBtn.cloneNode(true) as HTMLElement
+      removeBtn.replaceWith(newBtn)
+      newBtn.addEventListener('mousedown', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        chip.remove()
+        syncContentFromEditor()
+        autoResizeTextarea()
+      })
+    }
+  }
+}
+
 const isSubmitDisabled = computed(() => {
-  return !content.value.trim() || isLoading.value
+  // Allow submit if there's text OR file chips
+  const hasText = !!content.value.trim()
+  const hasChips = (textareaRef.value?.querySelectorAll(`[${FILE_CHIP_ATTR}]`).length ?? 0) > 0
+  return (!hasText && !hasChips) || isLoading.value
 })
 
 // === Completion Dropdown Composable ===
@@ -281,11 +455,13 @@ const slashCompletion = useCompletionDropdown({
   toDropdownItem: commandToDropdownItem,
   onSelect: (command, query) => {
     if (query) {
-      const updated = slashCompletion.replaceText(content.value, `${command.label} `)
+      const textContent = textareaRef.value?.textContent || ''
+      const updated = slashCompletion.replaceText(textContent, `${command.label} `)
       content.value = updated
 
- // DOM
+      // Update DOM — for slash commands we just set text (no chips involved)
       if (textareaRef.value) {
+        // Preserve existing chips by only replacing the text portion
         textareaRef.value.textContent = updated
         placeCaretAtEnd(textareaRef.value)
       }
@@ -296,28 +472,61 @@ const slashCompletion = useCompletionDropdown({
   anchorElement: textareaRef
 })
 
-// @
+// @ file completion — now inserts chips instead of text
 const fileCompletion = useCompletionDropdown({
   mode: 'inline',
   trigger: '@',
   provider: (query, signal) => getFileReferences(query, runtime, signal),
   toDropdownItem: fileToDropdownItem,
   onSelect: (file, query) => {
-    if (query) {
-      const updated = fileCompletion.replaceText(content.value, `@${file.path} `)
-      content.value = updated
-
- // DOM
-      if (textareaRef.value) {
-        textareaRef.value.textContent = updated
-        placeCaretAtEnd(textareaRef.value)
+    if (query && textareaRef.value) {
+      // Remove the @query text from the editor
+      const triggerInfo = fileCompletion.triggerQuery.value
+      if (triggerInfo) {
+        // Find and remove the @query text in the DOM
+        removeTextRange(textareaRef.value, triggerInfo.start, triggerInfo.start + triggerInfo.query.length + 1)
       }
-
-      emit('input', updated)
+      // Insert chip at current caret position
+      insertChipAtCaret(file.path)
     }
   },
   anchorElement: textareaRef
 })
+
+/** Remove a range of text characters from a contenteditable element */
+function removeTextRange(container: HTMLElement, startOffset: number, endOffset: number) {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
+  let charCount = 0
+  let startNode: Text | null = null
+  let startNodeOffset = 0
+  let endNode: Text | null = null
+  let endNodeOffset = 0
+  let node: Text | null = null
+
+  while ((node = walker.nextNode() as Text | null)) {
+    const len = node.textContent?.length ?? 0
+    if (!startNode && charCount + len > startOffset) {
+      startNode = node
+      startNodeOffset = startOffset - charCount
+    }
+    if (charCount + len >= endOffset) {
+      endNode = node
+      endNodeOffset = endOffset - charCount
+      break
+    }
+    charCount += len
+  }
+
+  if (startNode && endNode) {
+    const range = document.createRange()
+    range.setStart(startNode, startNodeOffset)
+    range.setEnd(endNode, Math.min(endNodeOffset, endNode.textContent?.length ?? 0))
+    range.deleteContents()
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(range)
+  }
+}
 
 function placeCaretAtEnd(node: HTMLElement) {
   const range = document.createRange()
@@ -337,19 +546,16 @@ function getCaretClientRect(editable: HTMLElement | null): DOMRect | undefined {
   const range = sel.getRangeAt(0).cloneRange()
   if (!editable.contains(range.startContainer)) return undefined
 
- // collapsed range 0 ，； getClientRects
   const rects = range.getClientRects()
   const rect = rects[0] || range.getBoundingClientRect()
   if (!rect) return undefined
 
- // ， 0 Dropdown
   const lh = parseFloat(getComputedStyle(editable).lineHeight || '0') || 16
   const height = rect.height || lh
 
   return new DOMRect(rect.left, rect.top, rect.width, height)
 }
 
-// （）
 function getRectAtCharOffset(editable: HTMLElement, charOffset: number): DOMRect | undefined {
   const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT)
   let remaining = charOffset
@@ -373,7 +579,6 @@ function getRectAtCharOffset(editable: HTMLElement, charOffset: number): DOMRect
   return undefined
 }
 
-// dropdown
 function updateDropdownPosition(
   completion: typeof slashCompletion | typeof fileCompletion,
   anchor: 'caret' | 'queryStart' = 'queryStart'
@@ -406,10 +611,14 @@ function updateDropdownPosition(
 
 function handleInput(event: Event) {
   const target = event.target as HTMLDivElement
+
+  // Sanitize: remove any pasted HTML elements that are NOT file chips
+  sanitizeEditorContent(target)
+
   const textContent = target.textContent || ''
 
- // div
-  if (textContent.length === 0) {
+  // If completely empty, clear innerHTML to show placeholder
+  if (textContent.trim().length === 0 && target.querySelectorAll(`[${FILE_CHIP_ATTR}]`).length === 0) {
     target.innerHTML = ''
   }
 
@@ -419,11 +628,10 @@ function handleInput(event: Event) {
   // Track text changes for unified undo
   pushUndoDebounced()
 
- // （slash @）
+  // Completion dropdowns
   slashCompletion.evaluateQuery(textContent)
   fileCompletion.evaluateQuery(textContent)
 
- // dropdown （）
   if (slashCompletion.isOpen.value) {
     nextTick(() => {
       updateDropdownPosition(slashCompletion, 'queryStart')
@@ -438,13 +646,58 @@ function handleInput(event: Event) {
   autoResizeTextarea()
 }
 
+/** Remove any HTML elements that aren't file chips, keeping only text and chips */
+function sanitizeEditorContent(container: HTMLElement) {
+  const children = Array.from(container.childNodes)
+  for (const child of children) {
+    if (child.nodeType === Node.TEXT_NODE) continue
+    if (child.nodeType === Node.ELEMENT_NODE) {
+      const el = child as HTMLElement
+      // Keep file chips
+      if (el.hasAttribute(FILE_CHIP_ATTR)) continue
+      // Allow <br> tags
+      if (el.tagName === 'BR') continue
+      // For div/p/span that may be created by contenteditable:
+      // Extract text and replace with text node + <br>
+      if (el.tagName === 'DIV' || el.tagName === 'P' || el.tagName === 'SPAN') {
+        // If it contains chips, keep the structure but unwrap the wrapper
+        const hasChips = el.querySelector(`[${FILE_CHIP_ATTR}]`)
+        if (hasChips) {
+          // Unwrap: move children to parent, then remove wrapper
+          const br = document.createElement('br')
+          container.insertBefore(br, el)
+          while (el.firstChild) {
+            container.insertBefore(el.firstChild, el)
+          }
+          el.remove()
+        } else {
+          // Pure text wrapper — extract text
+          const text = el.textContent || ''
+          if (text) {
+            const br = document.createElement('br')
+            container.insertBefore(br, el)
+            container.insertBefore(document.createTextNode(text), el)
+          }
+          el.remove()
+        }
+        continue
+      }
+      // Remove any other HTML elements (bold, italic, etc.)
+      const text = el.textContent || ''
+      if (text) {
+        container.insertBefore(document.createTextNode(text), el)
+      }
+      el.remove()
+    }
+  }
+}
+
 function autoResizeTextarea() {
   if (!textareaRef.value) return
 
   nextTick(() => {
     const divElement = textareaRef.value!
 
- // scrollHeight
     divElement.style.height = '20px'
 
     const scrollHeight = divElement.scrollHeight
@@ -464,15 +717,12 @@ function autoResizeTextarea() {
 function handleKeydown(event: KeyboardEvent) {
   const ctrlOrMeta = event.ctrlKey || event.metaKey
 
-  // Ctrl+Z: unified undo (text + attachments)
+  // Ctrl+Z: unified undo
   if (ctrlOrMeta && event.key === 'z' && !event.shiftKey) {
     if (undoStack.value.length > 0) {
       event.preventDefault()
-      // Flush any pending debounced save
       if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
-      // Push current state to redo
       redoStack.value = [...redoStack.value, currentSnapshot()]
-      // Pop and restore
       const prev = undoStack.value[undoStack.value.length - 1]
       undoStack.value = undoStack.value.slice(0, -1)
       restoreSnapshot(prev)
@@ -485,9 +735,7 @@ function handleKeydown(event: KeyboardEvent) {
     if (redoStack.value.length > 0) {
       event.preventDefault()
       if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
-      // Push current state to undo
       undoStack.value = [...undoStack.value, currentSnapshot()]
-      // Pop and restore
       const next = redoStack.value[redoStack.value.length - 1]
       redoStack.value = redoStack.value.slice(0, -1)
       restoreSnapshot(next)
@@ -506,7 +754,6 @@ function handleKeydown(event: KeyboardEvent) {
   }
 
   if (event.key === 'Enter' && !event.shiftKey) {
- // ()
     if (event.isComposing) {
       return
     }
@@ -514,60 +761,57 @@ function handleKeydown(event: KeyboardEvent) {
     handleSubmit()
   }
 
- // （）
   if (event.key === 'Backspace' || event.key === 'Delete') {
     setTimeout(() => {
-      const target = event.target as HTMLDivElement
-      const textContent = target.textContent || ''
-      if (textContent.length === 0) {
-        target.innerHTML = ''
-        content.value = ''
-      }
+      syncContentFromEditor()
+      autoResizeTextarea()
     }, 0)
   }
 }
 
 function handlePaste(event: ClipboardEvent) {
   const clipboard = event.clipboardData
-  if (!clipboard) {
-    return
-  }
+  if (!clipboard) return
 
   const items = clipboard.items
-  if (!items || items.length === 0) {
-    return
-  }
+  if (!items || items.length === 0) return
 
+  // Check for file items
   const files: File[] = []
   for (const item of Array.from(items)) {
     if (item.kind === 'file') {
       const file = item.getAsFile()
-      if (file) {
-        files.push(file)
-      }
+      if (file) files.push(file)
     }
   }
 
   if (files.length > 0) {
     event.preventDefault()
- // FileList-like
-    const dataTransfer = new DataTransfer()
+    if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
+    pushUndo()
+
+    // For pasted files, try to get file paths and insert as chips
     for (const file of files) {
-      dataTransfer.items.add(file)
+      const f = file as File & { path?: string }
+      const path = f.path ? toWorkspaceRelativePath(f.path) : file.name
+      insertChipAtCaret(path)
     }
-    handleAddFiles(dataTransfer.files)
     return
   }
 
-  // Text paste: save snapshot before the native paste happens,
-  // then sync after. contenteditable="plaintext-only" strips formatting.
+  // Text paste: intercept and insert as plain text only
+  event.preventDefault()
   if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
   pushUndo()
-  // After browser inserts the text, sync our state
+
+  const text = clipboard.getData('text/plain')
+  if (text) {
+    document.execCommand('insertText', false, text)
+  }
+
   setTimeout(() => {
-    const curText = textareaRef.value?.textContent || ''
-    content.value = curText
-    lastSavedText = curText
+    syncContentFromEditor()
+    lastSavedHtml = textareaRef.value?.innerHTML || ''
     autoResizeTextarea()
   }, 0)
 }
@@ -607,7 +851,6 @@ function toWorkspaceRelativePath(absoluteOrMixedPath: string): string {
   const normRoot = root.replace(/\\/g, '/').replace(/\/+$/, '')
   let normPath = absoluteOrMixedPath.replace(/\\/g, '/')
 
- // Windows file:// URI /C:/
   if (normPath.startsWith('/') && /^[A-Za-z]:\//.test(normPath.slice(1))) {
     normPath = normPath.slice(1)
   }
@@ -685,33 +928,6 @@ function extractFilePathsFromDataTransfer(dataTransfer: DataTransfer): string[] 
   return paths
 }
 
-async function statPaths(
-  paths: string[]
-): Promise<Record<string, 'file' | 'directory' | 'other' | 'not_found'>> {
-  const result: Record<string, 'file' | 'directory' | 'other' | 'not_found'> = {}
-  if (!paths.length) return result
-
-  const r = runtime as any
-  if (!r) return result
-
-  try {
-    const connection = await r.connectionManager.get()
-    const response = await connection.statPaths(paths)
-    const entries = (response?.entries ?? []) as Array<{ path: string; type: any }>
-    for (const entry of entries) {
-      if (!entry || typeof entry.path !== 'string') continue
-      const t = entry.type
-      if (t === 'file' || t === 'directory' || t === 'other' || t === 'not_found') {
-        result[entry.path] = t
-      }
-    }
-  } catch (error) {
-    console.warn('[ChatInputBox] statPaths failed:', error)
-  }
-
-  return result
-}
-
 function handleDragOver(event: DragEvent) {
   if (!isFileDrop(event)) return
   event.preventDefault()
@@ -728,11 +944,21 @@ async function handleDrop(event: DragEvent) {
   const paths = extractFilePathsFromDataTransfer(dataTransfer)
   if (paths.length === 0) return
 
-  // Emit file references to parent → shown as pill chips, not inserted as text
   if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
   pushUndo()
-  lastSavedText = textareaRef.value?.textContent || ''
-  emit('addFileRef', paths)
+
+  // Insert chips at the drop position
+  for (let i = 0; i < paths.length; i++) {
+    if (i === 0) {
+      // First chip at the exact drop point
+      insertChipAtPoint(paths[i], event.clientX, event.clientY)
+    } else {
+      // Subsequent chips at current caret (which is after the previous chip)
+      insertChipAtCaret(paths[i])
+    }
+  }
+
+  lastSavedHtml = textareaRef.value?.innerHTML || ''
 
   nextTick(() => {
     textareaRef.value?.focus()
@@ -740,20 +966,22 @@ async function handleDrop(event: DragEvent) {
 }
 
 function handleSubmit() {
-  if (!content.value.trim()) return
+  const textWithRefs = getEditorTextWithRefs()
+  const hasChips = (textareaRef.value?.querySelectorAll(`[${FILE_CHIP_ATTR}]`).length ?? 0) > 0
+
+  if (!textWithRefs.trim() && !hasChips) return
 
   if (props.conversationWorking) {
-    emit('queueMessage', content.value)
+    emit('queueMessage', textWithRefs)
   } else {
-    emit('submit', content.value)
+    emit('submit', textWithRefs)
   }
 
   content.value = ''
   if (textareaRef.value) {
-    textareaRef.value.textContent = ''
+    textareaRef.value.innerHTML = ''
   }
 
- // DOM
   nextTick(() => {
     autoResizeTextarea()
   })
@@ -763,46 +991,24 @@ function handleStop() {
   emit('stop')
 }
 
-function handleMention(filePath?: string) {
-  if (!filePath) return
+function handleAddFiles(files: FileList) {
+  if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
+  pushUndo()
 
- // @
-  const updatedContent = content.value + `@${filePath} `
-  content.value = updatedContent
-
- // DOM
-  if (textareaRef.value) {
-    textareaRef.value.textContent = updatedContent
-    placeCaretAtEnd(textareaRef.value)
+  // Convert files to chips at cursor position
+  for (const file of Array.from(files)) {
+    const f = file as File & { path?: string }
+    const path = f.path ? toWorkspaceRelativePath(f.path) : file.name
+    insertChipAtCaret(path)
   }
 
-  emit('input', updatedContent)
-
-  nextTick(() => {
-    textareaRef.value?.focus()
-  })
+  lastSavedHtml = textareaRef.value?.innerHTML || ''
 }
 
-function handleAddFiles(files: FileList) {
-  // Flush any pending text debounce, then save current state
-  if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
-  pushUndo()
-  lastSavedText = textareaRef.value?.textContent || ''
-  emit('addAttachment', files)
-}
-
-function handleRemoveAttachment(id: string) {
-  if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
-  pushUndo()
-  lastSavedText = textareaRef.value?.textContent || ''
-  emit('removeAttachment', id)
-}
-
-// （，）
+// Selection change handler (for dropdown positioning)
 function handleSelectionChange() {
   if (!content.value || !textareaRef.value) return
 
- // evaluateQuery（ handleInput ）
   if (slashCompletion.isOpen.value) {
     nextTick(() => {
       updateDropdownPosition(slashCompletion, 'queryStart')
@@ -815,7 +1021,6 @@ function handleSelectionChange() {
   }
 }
 
-// / selectionchange
 onMounted(() => {
   document.addEventListener('selectionchange', handleSelectionChange)
 })
@@ -825,7 +1030,6 @@ onUnmounted(() => {
 })
 
 defineExpose({
- /** */
   setContent(text: string) {
     content.value = text || ''
     if (textareaRef.value) {
@@ -833,42 +1037,47 @@ defineExpose({
     }
     autoResizeTextarea()
   },
- /** */
   focus() {
     nextTick(() => textareaRef.value?.focus())
-  }
+  },
+  /** Insert a file chip at the current cursor position */
+  insertFileChip(filePath: string) {
+    insertChipAtCaret(filePath)
+  },
+  /** Get all file paths from chips in the editor */
+  getChipPaths,
+  /** Get the full text content including @path references for chips */
+  getEditorTextWithRefs,
 })
 
 </script>
 
 <style scoped>
-/* - caret */
+/* Editor input */
 .aislash-editor-input {
   line-height: 18px;
   overflow-x: hidden;
 }
 
-/* Prevent pasted or child elements from breaking the layout */
-.aislash-editor-input :deep(*) {
+/* Prevent pasted or child elements from breaking the layout — but exclude file chips */
+.aislash-editor-input :deep(*:not(.inline-file-chip):not(.inline-file-chip *)) {
   max-width: 100% !important;
   white-space: pre-wrap !important;
   word-break: break-word !important;
   overflow-wrap: break-word !important;
 }
 
-/* */
 .aislash-editor-input:focus {
   outline: none !important;
   border: none !important;
 }
 
-/* */
 .full-input-box:focus-within {
   border-color: var(--vscode-input-border) !important;
   outline: none !important;
 }
 
-/* Placeholder */
+/* Placeholder — show when empty AND no chips */
 .aislash-editor-input:empty::before {
   content: attr(data-placeholder);
   color: var(--vscode-input-placeholderForeground);
@@ -882,119 +1091,53 @@ defineExpose({
   pointer-events: none;
 }
 
-/* - pills */
-.attachments-list {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 20px;
-  /* max-height: 44px; */
-  overflow: hidden;
-}
-
-.attachment-item {
+/* ============================================================
+   Inline file chips — styled as small tags inline in text
+   ============================================================ */
+.aislash-editor-input :deep(.inline-file-chip) {
   display: inline-flex;
   align-items: center;
-  padding-right: 4px;
-  border: 1px solid var(--vscode-editorWidget-border);
-  border-radius: 4px;
-  font-size: 12px;
-  flex-shrink: 0;
+  gap: 2px;
+  padding: 0 4px 0 5px;
+  margin: 0 1px;
+  background-color: color-mix(in srgb, var(--vscode-textLink-foreground) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vscode-textLink-foreground) 25%, transparent);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 18px;
+  height: 18px;
+  vertical-align: baseline;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap !important;
   max-width: 200px;
-  cursor: pointer;
-  transition: all 0.15s;
-  position: relative;
-  outline: none;
-  line-height: 16px;
-  height: 20px;
 }
 
-.attachment-item:hover {
-  background-color: var(--vscode-list-hoverBackground);
-  border-color: var(--vscode-focusBorder);
-}
-
-/* */
-.icon-wrapper {
-  position: relative;
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-}
-
-.attachment-icon {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  opacity: 1;
-  transition: opacity 0.15s ease;
-  scale: 0.8;
-}
-
-/* （ :deep FileIcon ） */
-.attachment-item .attachment-icon :deep(.mdi),
-.attachment-item .attachment-icon :deep(.codicon) {
-  color: var(--vscode-foreground);
-  opacity: 0.8;
-}
-
-.attachment-name {
-  flex-shrink: 0;
+.aislash-editor-input :deep(.inline-file-chip .chip-name) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--vscode-foreground);
-  opacity: 1;
-  max-width: 140px;
+  color: var(--vscode-textLink-foreground);
+  font-weight: 500;
+  max-width: 160px;
 }
 
-.attachment-size {
- display: none; /* ， */
-}
-
-.remove-button {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  background: none;
-  border: none;
-  border-radius: 2px;
+.aislash-editor-input :deep(.inline-file-chip .chip-remove) {
+  font-size: 10px;
   cursor: pointer;
+  opacity: 0.5;
   color: var(--vscode-foreground);
-  opacity: 0;
-  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
 }
 
-.remove-button .codicon {
-  font-size: 14px;
+.aislash-editor-input :deep(.inline-file-chip .chip-remove:hover) {
+  opacity: 1;
+  color: var(--vscode-errorForeground, #f44);
 }
 
-/* hover attachment-item */
-.attachment-item:hover .attachment-icon {
-  opacity: 0;
+.aislash-editor-input :deep(.inline-file-chip:hover) {
+  background-color: color-mix(in srgb, var(--vscode-textLink-foreground) 18%, transparent);
+  border-color: color-mix(in srgb, var(--vscode-textLink-foreground) 40%, transparent);
 }
-
-.attachment-item:hover .remove-button {
-  opacity: 0.8;
-}
-
-.remove-button:hover {
-  opacity: 1 !important;
-}
-
 </style>

@@ -29,10 +29,13 @@ export class VSCodeTransport extends BaseTransport {
      */
     send(message: any): void {
         try {
- this.logService.info(`[VSCodeTransport] : ${message.type}`);
+            // Skip logging for high-frequency io_message to keep output clean
+            if (message.type !== 'io_message') {
+                this.logService.info(`[VSCodeTransport] : ${message.type}`);
+            }
             this.webViewService.postMessage(message);
         } catch (error) {
- this.logService.error('[VSCodeTransport] :', error);
+            this.logService.error('[VSCodeTransport] :', error);
         }
     }
 }

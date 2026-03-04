@@ -49,19 +49,31 @@
         <!-- Fade overlay when collapsed and not editing -->
         <div v-if="plan && !isExpanded && !isEditing" class="plan-fade"></div>
 
-        <!-- Footer: Execute button (hidden during edit) -->
+        <!-- Footer: Execute buttons (hidden during edit) -->
         <div v-if="plan && !isEditing && !toolResult?.is_error" class="plan-footer">
           <button
-            v-if="!executed"
+            v-if="!executed && !startedNewSession"
             class="execute-button"
             @click.stop="executePlan"
           >
             <span class="codicon codicon-play"></span>
             <span>Plan ausf&#xFC;hren</span>
           </button>
-          <span v-else class="executed-label">
+          <button
+            v-if="!executed && !startedNewSession"
+            class="execute-button new-session-button"
+            @click.stop="startInNewSession"
+          >
+            <span class="codicon codicon-window"></span>
+            <span>In neuer Session starten</span>
+          </button>
+          <span v-if="executed" class="executed-label">
             <span class="codicon codicon-check"></span>
             <span>Plan gestartet</span>
+          </span>
+          <span v-if="startedNewSession" class="executed-label">
+            <span class="codicon codicon-check"></span>
+            <span>Neue Session gestartet</span>
           </span>
         </div>
 
@@ -90,6 +102,7 @@ const props = defineProps<Props>();
 // State
 const isExpanded = ref(true);
 const executed = ref(false);
+const startedNewSession = ref(false);
 const isEditing = ref(false);
 const saving = ref(false);
 const contentEl = ref<HTMLElement>();
@@ -130,6 +143,12 @@ const executePlan = () => {
   if (executed.value) return;
   executed.value = true;
   props.context?.sendUserMessage?.('Führe den Plan aus.');
+};
+
+const startInNewSession = () => {
+  if (startedNewSession.value || !plan.value) return;
+  startedNewSession.value = true;
+  props.context?.startPlanInNewSession?.(plan.value);
 };
 
 // --- Inline editing (contenteditable) ---
@@ -486,6 +505,7 @@ function tableToMd(table: HTMLElement): string {
 .plan-footer {
   display: flex;
   justify-content: center;
+  gap: 8px;
   padding: 8px 12px;
   border-top: 1px solid var(--vscode-panel-border);
   background-color: color-mix(in srgb, var(--vscode-editor-background) 95%, transparent);
@@ -512,6 +532,15 @@ function tableToMd(table: HTMLElement): string {
 
 .execute-button .codicon {
   font-size: 14px;
+}
+
+.new-session-button {
+  background-color: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}
+
+.new-session-button:hover {
+  background-color: var(--vscode-button-secondaryHoverBackground);
 }
 
 .executed-label {

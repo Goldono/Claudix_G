@@ -209,6 +209,9 @@ export abstract class BaseTransport {
   getPreWriteContents(filePath: string): Promise<any> {
     return this.sendRequest({ type: "get_pre_write_contents", filePath } as any);
   }
+  checkSnapshotOwnership(filePaths: string[], currentSessionId: string): Promise<any> {
+    return this.sendRequest({ type: "check_snapshot_ownership", filePaths, currentSessionId } as any);
+  }
   getUsageInfo(): Promise<any> {
     return this.sendRequest({ type: "get_usage_info" } as any);
   }

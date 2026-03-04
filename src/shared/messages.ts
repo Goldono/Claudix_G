@@ -364,6 +364,21 @@ export interface GetPreWriteContentsResponse {
 }
 
 /**
+ * Check snapshot ownership — which files' snapshots belong to a given session
+ */
+export interface CheckSnapshotOwnershipRequest {
+    type: "check_snapshot_ownership";
+    filePaths: string[];
+    currentSessionId: string;
+}
+
+export interface CheckSnapshotOwnershipResponse {
+    type: "check_snapshot_ownership_response";
+    safe: string[];
+    conflict: Array<{ filePath: string; ownerSessionId: string }>;
+}
+
+/**
  * Write lines to the Claudix output channel and optionally show it
  */
 export interface WriteRestoreLogRequest {

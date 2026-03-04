@@ -1,5 +1,6 @@
 <template>
   <button
+    ref="tabRef"
     :class="[
       'session-tab',
       {
@@ -23,8 +24,11 @@
       <span class="codicon codicon-close" />
     </span>
 
-    <!-- Context Menu -->
-    <div v-if="contextMenuVisible" class="tab-context-menu" @click.stop>
+  </button>
+
+  <!-- Context Menu (teleported to body so it's not clipped by overflow) -->
+  <Teleport to="body">
+    <div v-if="contextMenuVisible" class="tab-context-menu" :style="contextMenuStyle" @click.stop>
       <button class="context-menu-item" @click.stop="closeOthers">
         <span class="codicon codicon-close-all"></span>
         <span>Andere Tabs schließen</span>
@@ -34,7 +38,7 @@
         <span>Diesen Tab schließen</span>
       </button>
     </div>
-  </button>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -55,8 +59,21 @@ const emit = defineEmits<{
 
 // Context menu
 const contextMenuVisible = ref(false);
+const tabRef = ref<HTMLElement | null>(null);
+const contextMenuStyle = ref<Record<string, string>>({});
 
-function showContextMenu() {
+function showContextMenu(e: MouseEvent) {
+  // Position the menu at the click coordinates
+  const el = (e.currentTarget as HTMLElement) ?? tabRef.value;
+  if (el) {
+    const rect = el.getBoundingClientRect();
+    contextMenuStyle.value = {
+      position: 'fixed',
+      top: `${rect.bottom + 2}px`,
+      left: `${rect.left}px`,
+      zIndex: '9999',
+    };
+  }
   contextMenuVisible.value = true;
   // Close on next click anywhere
   setTimeout(() => document.addEventListener('click', hideContextMenu, { once: true }), 0);
@@ -213,12 +230,11 @@ const label = computed(() => {
   font-size: 10px;
 }
 
-/* Context Menu */
+</style>
+
+<!-- Unscoped styles for teleported context menu -->
+<style>
 .tab-context-menu {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 1000;
   min-width: 180px;
   padding: 4px 0;
   background-color: var(--vscode-menu-background);
