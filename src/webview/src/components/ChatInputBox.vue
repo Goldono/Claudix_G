@@ -123,6 +123,7 @@ import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import FileIcon from './FileIcon.vue'
 import ButtonArea from './ButtonArea.vue'
 import type { AttachmentItem } from '../types/attachment'
+import { IMAGE_MEDIA_TYPES } from '../types/attachment'
 import { Dropdown, DropdownItem } from './Dropdown'
 import { RuntimeKey } from '../composables/runtimeContext'
 import { useCompletionDropdown } from '../composables/useCompletionDropdown'
@@ -191,12 +192,14 @@ const textareaRef = ref<HTMLDivElement | null>(null)
 
 const FILE_CHIP_ATTR = 'data-file-chip'
 const FILE_CHIP_PATH_ATTR = 'data-file-path'
+const FILE_CHIP_BINARY_ATTR = 'data-binary-attachment'
 
 /** Create an inline file chip DOM element */
-function createFileChip(filePath: string): HTMLSpanElement {
+function createFileChip(filePath: string, isBinary = false): HTMLSpanElement {
   const chip = document.createElement('span')
   chip.setAttribute(FILE_CHIP_ATTR, '1')
   chip.setAttribute(FILE_CHIP_PATH_ATTR, filePath)
+  if (isBinary) chip.setAttribute(FILE_CHIP_BINARY_ATTR, '1')
   chip.setAttribute('contenteditable', 'false')
   chip.className = 'inline-file-chip'
 
@@ -204,7 +207,7 @@ function createFileChip(filePath: string): HTMLSpanElement {
   const fileName = filePath.replace(/\\/g, '/').split('/').pop() || filePath
   const nameSpan = document.createElement('span')
   nameSpan.className = 'chip-name'
-  nameSpan.textContent = `@${fileName}`
+  nameSpan.textContent = isBinary ? fileName : `@${fileName}`
   nameSpan.title = filePath
 
   // Remove button
@@ -225,12 +228,12 @@ function createFileChip(filePath: string): HTMLSpanElement {
 }
 
 /** Insert a file chip at the current caret position (or end if no selection) */
-function insertChipAtCaret(filePath: string) {
+function insertChipAtCaret(filePath: string, isBinary = false) {
   const el = textareaRef.value
   if (!el) return
 
   el.focus()
-  const chip = createFileChip(filePath)
+  const chip = createFileChip(filePath, isBinary)
 
   const sel = window.getSelection()
   if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
@@ -258,11 +261,11 @@ function insertChipAtCaret(filePath: string) {
 }
 
 /** Insert a file chip at a specific drop point (x, y coordinates) */
-function insertChipAtPoint(filePath: string, x: number, y: number) {
+function insertChipAtPoint(filePath: string, x: number, y: number, isBinary = false) {
   const el = textareaRef.value
   if (!el) return
 
-  const chip = createFileChip(filePath)
+  const chip = createFileChip(filePath, isBinary)
 
   // Try to find the caret position at drop coordinates
   let range: Range | null = null
@@ -314,9 +317,14 @@ function nodeToText(node: Node): string {
 
   const el = node as HTMLElement
 
-  // File chip → @path
+  // File chip → @path (text/code) or just filename (binary — content sent as attachment)
   if (el.hasAttribute(FILE_CHIP_ATTR)) {
     const path = el.getAttribute(FILE_CHIP_PATH_ATTR) || ''
+    if (el.hasAttribute(FILE_CHIP_BINARY_ATTR)) {
+      // Binary attachment: content is already sent as base64, just show filename
+      const fileName = path.replace(/\\/g, '/').split('/').pop() || path
+      return `[${fileName}]`
+    }
     return `@${path}`
   }
 
@@ -790,8 +798,32 @@ function handlePaste(event: ClipboardEvent) {
     if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
     pushUndo()
 
-    // For pasted files, try to get file paths and insert as chips
+    // Separate binary files (images/PDFs) from text/code files
+    const binaryFiles: File[] = []
+    const textFiles: File[] = []
     for (const file of files) {
+      if (isBinaryAttachmentType(file)) {
+        binaryFiles.push(file)
+      } else {
+        textFiles.push(file)
+      }
+    }
+
+    // Binary files (images/PDFs) → send as real attachments with base64 content
+    // AND insert a chip for visual feedback
+    if (binaryFiles.length > 0) {
+      const dt = new DataTransfer()
+      for (const f of binaryFiles) dt.items.add(f)
+      emit('addAttachment', dt.files)
+    }
+    for (const file of binaryFiles) {
+      const f = file as File & { path?: string }
+      const path = f.path ? toWorkspaceRelativePath(f.path) : file.name
+      insertChipAtCaret(path, true)
+    }
+
+    // Text/code files → insert as inline chips (@path references)
+    for (const file of textFiles) {
       const f = file as File & { path?: string }
       const path = f.path ? toWorkspaceRelativePath(f.path) : file.name
       insertChipAtCaret(path)
@@ -879,6 +911,17 @@ function toWorkspaceRelativePath(absoluteOrMixedPath: string): string {
   return absoluteOrMixedPath
 }
 
+/** Check if a file is a binary type (image/PDF) that must be sent as base64 content */
+function isBinaryAttachmentType(file: File): boolean {
+  const type = file.type.toLowerCase()
+  if (IMAGE_MEDIA_TYPES.includes(type as any)) return true
+  if (type === 'application/pdf') return true
+  // Also check by extension for cases where MIME type is empty
+  const ext = file.name.split('.').pop()?.toLowerCase()
+  if (ext && ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'].includes(ext)) return true
+  return false
+}
+
 function isFileDrop(event: DragEvent): boolean {
   const dataTransfer = event.dataTransfer
   if (!dataTransfer) return false
@@ -954,20 +997,42 @@ async function handleDrop(event: DragEvent) {
 
   event.preventDefault()
 
-  const paths = extractFilePathsFromDataTransfer(dataTransfer)
-  if (paths.length === 0) return
-
   if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
   pushUndo()
 
-  // Insert chips at the drop position
-  for (let i = 0; i < paths.length; i++) {
-    if (i === 0) {
-      // First chip at the exact drop point
-      insertChipAtPoint(paths[i], event.clientX, event.clientY)
-    } else {
-      // Subsequent chips at current caret (which is after the previous chip)
-      insertChipAtCaret(paths[i])
+  // Separate binary files (images/PDFs) from text/code files
+  const binaryFiles: File[] = []
+  if (dataTransfer.files && dataTransfer.files.length > 0) {
+    for (const file of Array.from(dataTransfer.files)) {
+      if (isBinaryAttachmentType(file)) {
+        binaryFiles.push(file)
+      }
+    }
+  }
+
+  // Binary files (images/PDFs) → send as real attachments with base64 content
+  // AND insert chips for visual feedback
+  if (binaryFiles.length > 0) {
+    const dt = new DataTransfer()
+    for (const f of binaryFiles) dt.items.add(f)
+    emit('addAttachment', dt.files)
+  }
+
+  // All files → insert as chips (binary for visual feedback, text for @path references)
+  const paths = extractFilePathsFromDataTransfer(dataTransfer)
+  const binaryPathSet = new Set(binaryFiles.map(f => {
+    const fWithPath = f as File & { path?: string }
+    return fWithPath.path ? toWorkspaceRelativePath(fWithPath.path) : f.name
+  }))
+
+  if (paths.length > 0) {
+    for (let i = 0; i < paths.length; i++) {
+      const isBin = binaryPathSet.has(paths[i])
+      if (i === 0) {
+        insertChipAtPoint(paths[i], event.clientX, event.clientY, isBin)
+      } else {
+        insertChipAtCaret(paths[i], isBin)
+      }
     }
   }
 
@@ -1008,8 +1073,32 @@ function handleAddFiles(files: FileList) {
   if (inputDebounceTimer) { clearTimeout(inputDebounceTimer); inputDebounceTimer = null }
   pushUndo()
 
-  // Convert files to chips at cursor position
+  // Separate binary files (images/PDFs) from text/code files
+  const binaryFiles: File[] = []
+  const textFiles: File[] = []
   for (const file of Array.from(files)) {
+    if (isBinaryAttachmentType(file)) {
+      binaryFiles.push(file)
+    } else {
+      textFiles.push(file)
+    }
+  }
+
+  // Binary files (images/PDFs) → send as real attachments with base64 content
+  // AND insert chips for visual feedback
+  if (binaryFiles.length > 0) {
+    const dt = new DataTransfer()
+    for (const f of binaryFiles) dt.items.add(f)
+    emit('addAttachment', dt.files)
+  }
+  for (const file of binaryFiles) {
+    const f = file as File & { path?: string }
+    const path = f.path ? toWorkspaceRelativePath(f.path) : file.name
+    insertChipAtCaret(path, true)
+  }
+
+  // Text/code files → insert as inline chips (@path references)
+  for (const file of textFiles) {
     const f = file as File & { path?: string }
     const path = f.path ? toWorkspaceRelativePath(f.path) : file.name
     insertChipAtCaret(path)

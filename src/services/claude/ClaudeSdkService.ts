@@ -591,26 +591,44 @@ export class ClaudeSdkService implements IClaudeSdkService {
      * Get Claude CLI executable path — searches for system-installed Claude Code
      */
     private getClaudeExecutablePath(): string {
-        // 1. Try common global install locations
+        const path = require('path');
         const isWindows = process.platform === "win32";
         const homeDir = process.env.HOME || process.env.USERPROFILE || '';
 
-        const commonPaths = isWindows
-            ? [
-                `${process.env.APPDATA}\\npm\\claude.cmd`,
-                `${process.env.APPDATA}\\npm\\claude`,
-                `${homeDir}\\.npm-global\\claude.cmd`,
-            ]
-            : [
+        // On Windows, .cmd wrappers can't be spawned by the SDK (spawn EINVAL).
+        // We need to find the actual cli.js file that the .cmd wrapper points to.
+        if (isWindows) {
+            const npmDirs = [
+                `${process.env.APPDATA}\\npm`,
+                `${homeDir}\\.npm-global`,
+            ];
+
+            for (const npmDir of npmDirs) {
+                if (!npmDir) continue;
+                // Direct path to cli.js inside the npm global node_modules
+                const cliJs = path.join(npmDir, 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js');
+                if (fs.existsSync(cliJs)) {
+                    this.logService.info(`[ClaudeSdkService] Found Claude CLI at: ${cliJs}`);
+                    return cliJs;
+                }
+                // Fallback: check if .cmd exists (to give a better error)
+                const cmdPath = path.join(npmDir, 'claude.cmd');
+                if (fs.existsSync(cmdPath)) {
+                    this.logService.warn(`[ClaudeSdkService] Found claude.cmd but not cli.js — installation may be incomplete`);
+                }
+            }
+        } else {
+            const commonPaths = [
                 '/usr/local/bin/claude',
                 '/usr/bin/claude',
                 `${homeDir}/.npm-global/bin/claude`,
             ];
 
-        for (const p of commonPaths) {
-            if (p && fs.existsSync(p)) {
-                this.logService.info(`[ClaudeSdkService] Found Claude CLI at: ${p}`);
-                return p;
+            for (const p of commonPaths) {
+                if (p && fs.existsSync(p)) {
+                    this.logService.info(`[ClaudeSdkService] Found Claude CLI at: ${p}`);
+                    return p;
+                }
             }
         }
 
@@ -620,6 +638,15 @@ export class ClaudeSdkService implements IClaudeSdkService {
             const result = execSync(cmd, { encoding: 'utf-8', timeout: 5000 }).trim();
             const firstLine = result.split('\n')[0].trim();
             if (firstLine && fs.existsSync(firstLine)) {
+                // On Windows, resolve .cmd to actual cli.js
+                if (isWindows && firstLine.endsWith('.cmd')) {
+                    const npmDir = path.dirname(firstLine);
+                    const cliJs = path.join(npmDir, 'node_modules', '@anthropic-ai', 'claude-code', 'cli.js');
+                    if (fs.existsSync(cliJs)) {
+                        this.logService.info(`[ClaudeSdkService] Found Claude CLI via PATH (resolved): ${cliJs}`);
+                        return cliJs;
+                    }
+                }
                 this.logService.info(`[ClaudeSdkService] Found Claude CLI via PATH: ${firstLine}`);
                 return firstLine;
             }
