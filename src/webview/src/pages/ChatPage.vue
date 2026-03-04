@@ -1094,6 +1094,12 @@
       restoredCheckpoints.value = new Map();
       revertedToolUses.value = new Set();
       try {
+        // Stop the old session's Claude process first to avoid conflicts
+        const oldSession = activeSessionRaw.value;
+        if (oldSession) {
+          try { await oldSession.interrupt(); } catch { /* ignore */ }
+          await new Promise(r => setTimeout(r, 500));
+        }
         const newSession = await runtime.sessionStore.createSession({ isExplicit: true });
         userScrolledUp = false;
         await newSession.send(trimmed || ' ', binaryAttachments);

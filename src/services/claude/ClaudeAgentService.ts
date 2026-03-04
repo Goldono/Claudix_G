@@ -446,8 +446,10 @@ export class ClaudeAgentService implements IClaudeAgentService {
                 );
             } catch (spawnError: any) {
                 const errMsg = String(spawnError?.message || spawnError || '');
-                if (usedResume && (errMsg.includes('No conversation found') || errMsg.includes('No message found') || errMsg.includes('exited with code 1'))) {
-                    this.logService.warn(`[launchClaude] Session "${usedResume}" not found — retrying without resume`);
+                const isSessionError = errMsg.includes('No conversation found') || errMsg.includes('No message found');
+                const isExitCode1 = errMsg.includes('exited with code 1');
+                if (isSessionError || isExitCode1) {
+                    this.logService.warn(`[launchClaude] Spawn failed (resume="${usedResume}") — retrying fresh: ${errMsg.slice(0, 120)}`);
                     inputStream = new AsyncStream<SDKUserMessage>();
                     usedResume = null;
                     query = await this.spawnClaude(
@@ -492,9 +494,11 @@ export class ClaudeAgentService implements IClaudeAgentService {
                     this.closeChannel(channelId, true);
                 } catch (error) {
                     const errStr = String(error instanceof Error ? error.message : error);
-                    // Fallback: if the query loop fails due to session-not-found, retry without resume
-                    if (usedResume && (errStr.includes('No conversation found') || errStr.includes('No message found') || errStr.includes('exited with code 1'))) {
-                        this.logService.warn(`[launchClaude] Query failed for session "${usedResume}" — starting fresh session`);
+                    const isSessionError = errStr.includes('No conversation found') || errStr.includes('No message found');
+                    const isExitCode1 = errStr.includes('exited with code 1');
+                    // Fallback: retry with a fresh session on session errors or unexpected exit code 1
+                    if (isSessionError || isExitCode1) {
+                        this.logService.warn(`[launchClaude] Query failed (resume="${usedResume}") — retrying fresh session: ${errStr.slice(0, 120)}`);
                         try {
                             const oldChannel = this.channels.get(channelId);
                             if (oldChannel) { oldChannel.in.done(); this.channels.delete(channelId); }
